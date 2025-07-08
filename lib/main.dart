@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:traversemastery/UI/app_theme.dart';
-import 'package:traversemastery/UI/user_profile_screen.dart';
+import 'package:traversemastery/ui/app_theme.dart';
+import 'package:traversemastery/ui/screens/data_entry_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -12,15 +12,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TestDesc App',
-      // Используем нашу тёмную тему по умолчанию
-      theme: AppTheme.darkTheme,
-      // Если вы захотите добавить логику переключения тем,
-      // вам также понадобится свойство darkTheme и themeMode:
-      // darkTheme: AppTheme.darkTheme, // Можно явно указать темную тему для darkTheme
-      // themeMode: ThemeMode.dark, // или ThemeMode.light, или ThemeMode.system
-
-      home: const UserProfileScreen(),
+      title: 'Расчет Теодолитного Хода', // Название приложения
+      // Убедитесь, что AppTheme.darkTheme (или AppTheme.lightTheme) существует и корректно определен
+      theme: AppTheme.lightTheme, // Для примера используем светлую тему по умолчанию
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.system, // Можно выбрать system, light, dark
+      // Убедитесь, что класс DataEntryScreen определен и импортирован правильно
+      home: const DataEntryScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
