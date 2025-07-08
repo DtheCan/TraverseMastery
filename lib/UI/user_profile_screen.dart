@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'widgets/user_profile_form.dart'; // Импортируем нашу форму
+import 'widgets/theodolite_form.dart'; // Импортируем нашу форму
 
 class UserProfileScreen extends StatelessWidget {
   const UserProfileScreen({super.key});
@@ -11,7 +11,7 @@ class UserProfileScreen extends StatelessWidget {
         title: const Text('Профиль пользователя'),
         centerTitle: true, // Для центрирования заголовка
       ),
-      body: const UserProfileForm(), // Вставляем нашу форму
+      body: const TheodoliteForm(), // Вставляем нашу форму
     );
   }
 }
