@@ -96,55 +96,70 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
         title: const Text('Ввод данных теодолитного хода'),
         centerTitle: true,
       ),
-      // --- ДОБАВЛЕНО БОКОВОЕ МЕНЮ (DRAWER) ---
       drawer: Drawer(
-        child: ListView(
-          // Important: Remove any padding from the ListView.
-          padding: EdgeInsets.zero,
+        child: Column(
           children: <Widget>[
             DrawerHeader(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer, // Пример цвета
+                color: Theme.of(context).colorScheme.primaryContainer,
               ),
               child: Text(
                 'Меню',
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer, // Пример цвета
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
                   fontSize: 24,
                 ),
               ),
             ),
             ListTile(
+              leading: const Icon(Icons.calculate_outlined),
+              title: const Text('Новый расчет'),
+              onTap: () {
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.history),
               title: const Text('История расчетов'),
               onTap: () {
-                // TODO: Добавить логику для перехода на экран истории
-                Navigator.pop(context); // Закрываем Drawer
+                Navigator.pop(context);
                 _showErrorSnackBar('Пункт "История расчетов" еще не реализован.');
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.settings_outlined),
-              title: const Text('Настройки'),
-              onTap: () {
-                // TODO: Добавить логику для перехода на экран настроек
-                Navigator.pop(context); // Закрываем Drawer
-                _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('О приложении'),
-              onTap: () {
-                // TODO: Добавить логику для отображения информации о приложении
-                Navigator.pop(context); // Закрываем Drawer
-                _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
-              },
+            // Spacer будет занимать все пространство МЕЖДУ верхними элементами
+            // и нижней группой, обернутой в SafeArea
+            const Spacer(),
+            // Оборачиваем нижнюю группу в SafeArea, чтобы учесть системные отступы снизу
+            SafeArea(
+              top: false, // Нам не нужен отступ сверху для этой части
+              bottom: true, // Включаем отступ снизу
+              child: Column(
+                mainAxisSize: MainAxisSize.min, // Чтобы Column занимал минимально необходимое место
+                children: [
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.settings_outlined),
+                    title: const Text('Настройки'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('О приложении'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
+                    },
+                  ),
+                  // const SizedBox(height: 8.0), // Этот отступ теперь будет внутри SafeArea
+                ],
+              ),
             ),
           ],
         ),
       ),
-      // --- КОНЕЦ БОКОВОГО МЕНЮ ---
       body: SafeArea(
         child: _isLoading
             ? const Center(
@@ -157,7 +172,7 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
             ],
           ),
         )
-            : TheodoliteForm( // Просто отображаем TheodoliteForm
+            : TheodoliteForm(
           onSubmit: (FullTraverseInput submittedData) {
             _onCalculate(submittedData);
           },
