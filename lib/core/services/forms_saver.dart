@@ -1,12 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:traversemastery/models/traverse_calculation_result.dart'; // Убедитесь, что путь к модели верный
-
-// --- Цвета для SnackBar (можно передавать из UI или определить здесь, если сервис сам показывает SnackBar) ---
-// const _errorColor = Colors.redAccent; // Если SnackBar показывается из сервиса
-// const _successColor = Colors.green;
-// const _textOnPrimarySurface = Colors.white;
+// Убедитесь, что путь к вашей модели TraverseCalculationResult верный
+import 'package:traversemastery/models/traverse_calculation_result.dart';
 
 class FormSaverService {
   Future<String?> _getAppDirectoryPath() async {
@@ -19,88 +15,106 @@ class FormSaverService {
     }
   }
 
-  // Возвращает путь к файлу в случае успеха, или null в случае ошибки
   Future<String?> saveCalculationResult({
     required TraverseCalculationResult result,
     String? suggestedFileName,
-    // BuildContext? context, // Если хотите показывать SnackBar из сервиса
   }) async {
     String? appDirPath = await _getAppDirectoryPath();
 
     if (appDirPath == null) {
-      // Если context передан, можно показать SnackBar
-      // if (context != null && context.mounted) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     const SnackBar(
-      //       backgroundColor: _errorColor,
-      //       content: Text('Не удалось определить путь для сохранения.', style: TextStyle(color: _textOnPrimarySurface)),
-      //       behavior: SnackBarBehavior.floating,
-      //       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-      //     ),
-      //   );
-      // }
-      return null; // Ошибка определения пути
+      print("FormSaverService: Не удалось определить путь для сохранения.");
+      return null;
     }
 
     try {
-      // Путь теперь /data/SavedCalculationResult, как вы просили
-      final String saveDirPath = '$appDirPath/data/SavedCalculationResult'; // ИЗМЕНЕНО ИМЯ ПАПКИ
+      final String saveDirPath = '$appDirPath/data/SavedCalculationResult';
       final Directory saveDir = Directory(saveDirPath);
 
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
-        print('Создана директория: ${saveDir.path}');
+        print('FormSaverService: Создана директория: ${saveDir.path}');
       } else {
-        print('Директория для сохранения уже существует: ${saveDir.path}');
+        print('FormSaverService: Директория для сохранения уже существует: ${saveDir.path}');
       }
 
+      print("FormSaverService: Получено suggestedFileName: '$suggestedFileName'");
       String fileName = suggestedFileName?.trim() ?? '';
-      if (fileName.isEmpty || fileName.toLowerCase() == '.json') {
+      print("FormSaverService: fileName после trim и ?? '': '$fileName'");
+
+
+      // 1. Если предложенное имя ПУСТОЕ, генерируем имя по умолчанию
+      if (fileName.isEmpty) {
         final now = DateTime.now();
         final timestamp =
             "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
         final idPart = result.calculationId.isNotEmpty && result.calculationId.length >= 8
             ? result.calculationId.substring(0, 8)
-            : "res";
-        fileName = 'calc_${idPart}_$timestamp';
+            : "calc"; // Изменено с "res" на "calc" для большей понятности
+        fileName = '${idPart}_$timestamp';
+        print("FormSaverService: suggestedFileName был пуст, сгенерировано имя по умолчанию: '$fileName'");
       }
 
+      // 2. Очистка имени файла от недопустимых символов и форматирование
+      // Разрешаем: английские буквы, русские буквы, цифры, пробел, точка, дефис, подчеркивание
+      // Все остальное заменяем на одно подчеркивание
       fileName = fileName
-          .replaceAll(RegExp(r'[^\w\s\.-]'), '_')
-          .replaceAll(RegExp(r'\s+'), '_')
-          .replaceAll('..', '_');
+          .replaceAll(RegExp(r'[^a-zA-Zа-яА-Я0-9\s\._-]'), '_')
+          .trim(); // Убираем пробелы по краям, которые могли образоваться или были изначально
 
+      // Заменяем последовательности пробелов на одно подчеркивание
+      fileName = fileName.replaceAll(RegExp(r'\s+'), '_');
+
+      // Заменяем последовательности подчеркиваний (если их больше одного) на одно подчеркивание
+      fileName = fileName.replaceAll(RegExp(r'_+'), '_');
+
+      // Удаляем подчеркивание в начале имени файла, если оно есть
+      if (fileName.startsWith('_')) {
+        fileName = fileName.substring(1);
+      }
+      // Удаляем подчеркивание в конце имени файла (перед расширением), если оно есть
+      if (fileName.endsWith('_')) {
+        fileName = fileName.substring(0, fileName.length - 1);
+      }
+      print("FormSaverService: fileName после основной очистки: '$fileName'");
+
+
+      // 3. Если после очистки имя файла стало пустым или недопустимым,
+      //    снова генерируем имя по умолчанию (с другим префиксом для отладки).
+      //    Также проверяем, не состоит ли имя только из точек или дефисов.
+      if (fileName.isEmpty ||
+          fileName == '_' ||
+          fileName.replaceAll('.', '').replaceAll('-', '').isEmpty || // Состоит только из точек/дефисов
+          fileName.toLowerCase() == '.json') { // Только расширение
+
+        final now = DateTime.now();
+        final timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
+        final idPart = result.calculationId.isNotEmpty && result.calculationId.length >= 8
+            ? result.calculationId.substring(0, 8)
+            : "calc_err";
+        fileName = '${idPart}_${timestamp}_cleaned';
+        print("FormSaverService: fileName после очистки стал некорректным, сгенерировано новое имя: '$fileName'");
+      }
+
+      // 4. Добавляем расширение .json, если его нет
       if (!fileName.toLowerCase().endsWith('.json')) {
         fileName += '.json';
       }
-      if (fileName == '.json') {
-        final now = DateTime.now();
-        final timestamp =
-            "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
-        fileName = 'calc_default_$timestamp.json';
-      }
+      print("FormSaverService: Конечное имя файла для сохранения: '$fileName'");
+
 
       final String filePath = '${saveDir.path}/$fileName';
       final File file = File(filePath);
-      final String jsonString = jsonEncode(result.toJson());
+      final String jsonString = jsonEncode(result.toJson()); // Убедитесь, что toJson() есть в вашей модели
+
       await file.writeAsString(jsonString);
-      print('Файл успешно записан: $filePath');
-      return filePath; // Возвращаем путь к файлу
+      print('FormSaverService: Файл успешно записан: $filePath');
+      return filePath;
+
     } catch (e, s) {
-      print('Ошибка сохранения JSON: $e');
-      print('Stack trace: $s');
-      // Если context передан, можно показать SnackBar ошибки
-      // if (context != null && context.mounted) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     SnackBar(
-      //       backgroundColor: _errorColor,
-      //       content: Text('Ошибка сохранения файла: ${e.toString().split(':').last.trim()}', style: const TextStyle(color: _textOnPrimarySurface)),
-      //       behavior: SnackBarBehavior.floating,
-      //       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-      //     ),
-      //   );
-      // }
-      return null; // Ошибка сохранения
+      print('FormSaverService: Ошибка сохранения JSON: $e');
+      print('FormSaverService: Stack trace: $s');
+      return null;
     }
   }
 }
+
