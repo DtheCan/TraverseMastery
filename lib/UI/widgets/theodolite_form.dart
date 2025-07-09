@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
-import 'package:traversemastery/models/theodolite_station.dart'; // Предполагается, что этот файл существует
-import 'package:traversemastery/core/utils/angle_utils.dart';   // Предполагается, что этот файл существует
+
+// УБЕДИТЕСЬ, ЧТО ЭТИ ПУТИ ВЕРНЫ И ФАЙЛЫ СУЩЕСТВУЮТ В ВАШЕМ ПРОЕКТЕ.
+import 'package:traversemastery/models/theodolite_station.dart';
+import 'package:traversemastery/core/utils/angle_utils.dart';
+
 
 // Вспомогательный виджет для сохранения состояния дочерних элементов в ListView
 class KeepAliveWrapper extends StatefulWidget {
   final Widget child;
-
   const KeepAliveWrapper({required Key key, required this.child}) : super(key: key);
 
   @override
@@ -17,17 +19,16 @@ class KeepAliveWrapper extends StatefulWidget {
 class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Важно для AutomaticKeepAliveClientMixin
+    super.build(context);
     return widget.child;
   }
 
   @override
-  bool get wantKeepAlive => true; // Сохраняем состояние
+  bool get wantKeepAlive => true;
 }
 
 class TheodoliteForm extends StatefulWidget {
   final Function(List<TheodoliteStation> stations) onSubmit;
-
   const TheodoliteForm({super.key, required this.onSubmit});
 
   @override
@@ -41,6 +42,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
 
   final Map<String, Map<String, TextEditingController>> _controllers = {};
   final Map<String, Map<String, String>> _temporaryInputValues = {};
+  final Map<String, Map<String, String?>> _inlineFieldErrors = {};
   bool _formSubmittedOnce = false;
 
   @override
@@ -51,6 +53,17 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     _addStation(name: "Т3");
   }
 
+  @override
+  void dispose() {
+    _controllers.forEach((_, stationControllers) {
+      stationControllers.forEach((_, controller) => controller.dispose());
+    });
+    _controllers.clear();
+    _temporaryInputValues.clear();
+    _inlineFieldErrors.clear();
+    super.dispose();
+  }
+
   void _initializeControllersForStation(String stationId, {
     String name = '',
     AngleDMS? angleDMSFromModel,
@@ -59,7 +72,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     TheodoliteStation? currentStationFromList;
     try {
       currentStationFromList = _stations.firstWhere((s) => s.id == stationId);
-    } catch (e) { /* Станция может быть новой */ }
+    } catch (e) { /* Новая станция */ }
 
     final effectiveAngleDMS = angleDMSFromModel ?? AngleDMS();
     final effectiveDistance = distanceFromModel ?? '';
@@ -74,39 +87,19 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     String initialSec = tempValuesForStation['angle_sec'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.seconds == 0.0 ? '' : effectiveAngleDMS.seconds.toStringAsFixed(2));
     String initialDist = tempValuesForStation['distance'] ?? (isDistanceActuallyNullOrZeroInModel && effectiveDistance.isEmpty ? '' : effectiveDistance);
 
-    final nameController = TextEditingController(text: initialName);
-    final angleDegController = TextEditingController(text: initialDeg);
-    final angleMinController = TextEditingController(text: initialMin);
-    final angleSecController = TextEditingController(text: initialSec);
-    final distanceController = TextEditingController(text: initialDist);
-
     _controllers[stationId] = {
-      'name': nameController,
-      'angle_deg': angleDegController,
-      'angle_min': angleMinController,
-      'angle_sec': angleSecController,
-      'distance': distanceController,
+      'name': TextEditingController(text: initialName),
+      'angle_deg': TextEditingController(text: initialDeg),
+      'angle_min': TextEditingController(text: initialMin),
+      'angle_sec': TextEditingController(text: initialSec),
+      'distance': TextEditingController(text: initialDist),
     };
 
     _controllers[stationId]!.forEach((key, controller) {
       controller.addListener(() {
         _temporaryInputValues.putIfAbsent(stationId, () => {})[key] = controller.text;
-        // Валидация при изменении будет происходить через AutovalidateMode.onUserInteraction
-        // в самих TextFormField, если _formSubmittedOnce == true.
-        // Явный вызов _formKey.currentState?.validate() здесь может быть избыточным и приводить
-        // к валидации всей формы при каждом изменении символа, что не всегда желательно.
       });
     });
-  }
-
-  @override
-  void dispose() {
-    _controllers.forEach((_, stationControllers) {
-      stationControllers.forEach((_, controller) => controller.dispose());
-    });
-    _controllers.clear();
-    _temporaryInputValues.clear();
-    super.dispose();
   }
 
   void _addStation({String name = '', double? initialAngleDecimal}) {
@@ -135,8 +128,45 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
       _controllers[stationId]?.forEach((_, controller) => controller.dispose());
       _controllers.remove(stationId);
       _temporaryInputValues.remove(stationId);
+      _inlineFieldErrors.remove(stationId);
       _stations.removeAt(index);
     });
+  }
+
+  // --- УПРОЩЕННЫЙ Валидатор для Минут ---
+  String? _validateMinutesInput(String? value, {required String stationId}) {
+    final stationControllers = _controllers[stationId];
+    if (stationControllers == null) return null;
+
+    bool otherAnglePartsExist = stationControllers['angle_deg']!.text.isNotEmpty ||
+        stationControllers['angle_sec']!.text.isNotEmpty;
+
+    if (value == null || value.isEmpty) {
+      return otherAnglePartsExist ? 'Нужно' : null;
+    }
+
+    final min = int.tryParse(value);
+    if (min == null) return 'Число';
+    if (min < 0 || min >= 60) return '0-59';
+    return null;
+  }
+
+  // --- УПРОЩЕННЫЙ Валидатор для Секунд ---
+  String? _validateSecondsInput(String? value, {required String stationId}) {
+    final stationControllers = _controllers[stationId];
+    if (stationControllers == null) return null;
+
+    bool otherAnglePartsExist = stationControllers['angle_deg']!.text.isNotEmpty ||
+        stationControllers['angle_min']!.text.isNotEmpty;
+
+    if (value == null || value.isEmpty) {
+      return otherAnglePartsExist ? 'Нужно' : null;
+    }
+
+    final sec = double.tryParse(value);
+    if (sec == null) return 'Число';
+    if (sec < 0.0 || sec >= 60.0) return '0-59.99';
+    return null;
   }
 
   void _submitForm() {
@@ -146,62 +176,57 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
       });
     }
 
+    final bool isFormGloballyValid = _formKey.currentState!.validate();
+
+    bool hasInlineErrorsAfterValidation = false;
+    _inlineFieldErrors.forEach((_, errors) {
+      if (errors['minError'] != null || errors['secError'] != null) {
+        hasInlineErrorsAfterValidation = true;
+      }
+    });
+
     bool conversionErrorEncountered = false;
-    for (int i = 0; i < _stations.length; i++) {
-      final stationId = _stations[i].id;
-      final stationControllers = _controllers[stationId];
-      if (stationControllers != null) {
-        _stations[i].stationName = stationControllers['name']!.text;
+    if (isFormGloballyValid && !hasInlineErrorsAfterValidation) {
+      for (int i = 0; i < _stations.length; i++) {
+        final stationId = _stations[i].id;
+        final stationControllers = _controllers[stationId];
+        if (stationControllers != null) {
+          _stations[i].stationName = stationControllers['name']!.text;
 
-        final degStr = stationControllers['angle_deg']!.text;
-        final minStr = stationControllers['angle_min']!.text;
-        final secStr = stationControllers['angle_sec']!.text;
-        final distStr = stationControllers['distance']!.text;
+          final degStr = stationControllers['angle_deg']!.text;
+          final minStr = stationControllers['angle_min']!.text;
+          final secStr = stationControllers['angle_sec']!.text;
+          final distStr = stationControllers['distance']!.text;
 
-        if (distStr.isEmpty) {
-          _stations[i].distance = null;
-        } else {
-          final distVal = double.tryParse(distStr);
-          if (distVal != null && distVal > 0) {
-            _stations[i].distance = distVal;
-          } else {
+          if (distStr.isEmpty || double.tryParse(distStr) == null || double.tryParse(distStr)! <=0) {
             _stations[i].distance = null;
+          } else {
+            _stations[i].distance = double.tryParse(distStr);
           }
-        }
 
-        if (degStr.isEmpty && minStr.isEmpty && secStr.isEmpty) {
-          _stations[i].horizontalAngle = null;
-        } else {
-          int? degrees = int.tryParse(degStr.isNotEmpty ? degStr : "0");
-          int? minutes = int.tryParse(minStr.isNotEmpty ? minStr : "0");
-          double? seconds = double.tryParse(secStr.isNotEmpty ? secStr : "0.0");
+          if (degStr.isEmpty && minStr.isEmpty && secStr.isEmpty) {
+            _stations[i].horizontalAngle = null;
+          } else {
+            int degrees = int.tryParse(degStr.isNotEmpty ? degStr : "0") ?? 0;
+            int minutes = int.tryParse(minStr.isNotEmpty ? minStr : "0") ?? 0;
+            double seconds = double.tryParse(secStr.isNotEmpty ? secStr : "0.0") ?? 0.0;
 
-          if (degrees != null && minutes != null && seconds != null) {
-            if (minutes >= 0 && minutes < 60 && seconds >= 0.0 && seconds < 60.0) {
-              _stations[i].horizontalAngle = AngleDMS(degrees: degrees, minutes: minutes, seconds: seconds).toDecimalDegrees();
-            } else {
+            if (minutes < 0 || minutes >= 60 || seconds < 0.0 || seconds >= 60.0) {
               _stations[i].horizontalAngle = null;
               conversionErrorEncountered = true;
+            } else {
+              _stations[i].horizontalAngle = AngleDMS(degrees: degrees, minutes: minutes, seconds: seconds).toDecimalDegrees();
             }
-          } else {
-            _stations[i].horizontalAngle = null;
-            conversionErrorEncountered = true;
           }
         }
       }
     }
 
-    // Небольшое уведомление о проблемах конвертации, если они были, но основная работа у валидаторов.
-    if (conversionErrorEncountered && mounted) {
-      // ScaffoldMessenger.of(context).showSnackBar(
-      //   const SnackBar(content: Text('Проверьте корректность значений углов или расстояний.')),
-      // );
-    }
-
-    if (_formKey.currentState!.validate()) {
+    if (isFormGloballyValid && !hasInlineErrorsAfterValidation && !conversionErrorEncountered) {
       _temporaryInputValues.clear();
+      _inlineFieldErrors.forEach((_, errors) => errors.clear());
       setState(() {
-        _formSubmittedOnce = false; // Сбрасываем для следующего цикла ввода
+        _formSubmittedOnce = false;
       });
       widget.onSubmit(List.from(_stations));
     } else {
@@ -210,7 +235,6 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
           const SnackBar(content: Text('Пожалуйста, исправьте ошибки в полях ввода.')),
         );
       }
-      // _formSubmittedOnce остается true, чтобы поля продолжали валидироваться onUserInteraction
     }
   }
 
@@ -227,7 +251,9 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
       );
     }
     final stationSpecificControllers = _controllers[stationId]!;
-    final currentAutovalidateMode = _formSubmittedOnce
+    final currentFieldErrors = _inlineFieldErrors.putIfAbsent(stationId, () => {});
+
+    final generalAutovalidateMode = _formSubmittedOnce
         ? AutovalidateMode.onUserInteraction
         : AutovalidateMode.disabled;
 
@@ -249,7 +275,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                       isDense: true,
                     ),
                     style: Theme.of(context).textTheme.titleMedium,
-                    autovalidateMode: currentAutovalidateMode,
+                    autovalidateMode: generalAutovalidateMode,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Название станции?';
@@ -279,13 +305,13 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                     keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: false),
                     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')), LengthLimitingTextInputFormatter(4)],
                     textAlign: TextAlign.center,
-                    autovalidateMode: currentAutovalidateMode,
+                    autovalidateMode: generalAutovalidateMode,
                     validator: (value) {
-                      final allAngleFieldsEmpty = stationSpecificControllers['angle_deg']!.text.isEmpty &&
-                          stationSpecificControllers['angle_min']!.text.isEmpty &&
-                          stationSpecificControllers['angle_sec']!.text.isEmpty;
-                      if (allAngleFieldsEmpty) return null; // Если все поля угла пустые, ошибки нет
-                      if (value == null || value.isEmpty) return 'Нужно';
+                      bool otherAnglePartsExist = stationSpecificControllers['angle_min']!.text.isNotEmpty ||
+                          stationSpecificControllers['angle_sec']!.text.isNotEmpty;
+                      if (value == null || value.isEmpty) {
+                        return otherAnglePartsExist ? 'Нужно' : null;
+                      }
                       if (int.tryParse(value) == null) return 'Число';
                       return null;
                     },
@@ -296,21 +322,36 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                   flex: 2,
                   child: TextFormField(
                     controller: stationSpecificControllers['angle_min'],
-                    decoration: const InputDecoration(labelText: "Мин.'", hintText: "ММ"),
+                    decoration: InputDecoration(
+                      labelText: "Мин.'",
+                      hintText: "ММ",
+                      errorText: currentFieldErrors['minError'],
+                    ),
                     keyboardType: const TextInputType.numberWithOptions(signed: false, decimal: false),
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(2)],
                     textAlign: TextAlign.center,
-                    autovalidateMode: currentAutovalidateMode,
+                    autovalidateMode: AutovalidateMode.disabled,
+                    onChanged: (value) {
+                      setState(() {
+                        // Убрали isIntermediate
+                        currentFieldErrors['minError'] = _validateMinutesInput(value, stationId: stationId);
+                      });
+                      _temporaryInputValues.putIfAbsent(stationId, () => {})['angle_min'] = value;
+                      if (_formSubmittedOnce && currentFieldErrors['minError'] == null) {
+                        _formKey.currentState?.validate();
+                      }
+                    },
                     validator: (value) {
-                      final allAngleFieldsEmpty = stationSpecificControllers['angle_deg']!.text.isEmpty &&
-                          stationSpecificControllers['angle_min']!.text.isEmpty &&
-                          stationSpecificControllers['angle_sec']!.text.isEmpty;
-                      if (allAngleFieldsEmpty) return null;
-                      if (value == null || value.isEmpty) return 'Нужно';
-                      final min = int.tryParse(value);
-                      if (min == null) return 'Число';
-                      if (min < 0 || min >= 60) return '0-59';
-                      return null;
+                      // Убрали isIntermediate
+                      final error = _validateMinutesInput(value, stationId: stationId);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && currentFieldErrors['minError'] != error) {
+                          setState(() {
+                            currentFieldErrors['minError'] = error;
+                          });
+                        }
+                      });
+                      return error;
                     },
                   ),
                 ),
@@ -319,21 +360,36 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                   flex: 3,
                   child: TextFormField(
                     controller: stationSpecificControllers['angle_sec'],
-                    decoration: const InputDecoration(labelText: 'Сек."', hintText: "СС.сс"),
+                    decoration: InputDecoration(
+                      labelText: 'Сек."',
+                      hintText: "СС.сс",
+                      errorText: currentFieldErrors['secError'],
+                    ),
                     keyboardType: const TextInputType.numberWithOptions(signed: false, decimal: true),
                     inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')), LengthLimitingTextInputFormatter(5)],
                     textAlign: TextAlign.center,
-                    autovalidateMode: currentAutovalidateMode,
+                    autovalidateMode: AutovalidateMode.disabled,
+                    onChanged: (value) {
+                      setState(() {
+                        // Убрали isIntermediate
+                        currentFieldErrors['secError'] = _validateSecondsInput(value, stationId: stationId);
+                      });
+                      _temporaryInputValues.putIfAbsent(stationId, () => {})['angle_sec'] = value;
+                      if (_formSubmittedOnce && currentFieldErrors['secError'] == null) {
+                        _formKey.currentState?.validate();
+                      }
+                    },
                     validator: (value) {
-                      final allAngleFieldsEmpty = stationSpecificControllers['angle_deg']!.text.isEmpty &&
-                          stationSpecificControllers['angle_min']!.text.isEmpty &&
-                          stationSpecificControllers['angle_sec']!.text.isEmpty;
-                      if (allAngleFieldsEmpty) return null;
-                      if (value == null || value.isEmpty) return 'Нужно';
-                      final sec = double.tryParse(value);
-                      if (sec == null) return 'Число';
-                      if (sec < 0.0 || sec >= 60.0) return '0-59.99';
-                      return null;
+                      // Убрали isIntermediate
+                      final error = _validateSecondsInput(value, stationId: stationId);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted && currentFieldErrors['secError'] != error) {
+                          setState(() {
+                            currentFieldErrors['secError'] = error;
+                          });
+                        }
+                      });
+                      return error;
                     },
                   ),
                 ),
@@ -344,7 +400,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
               controller: stationSpecificControllers['distance'],
               decoration: const InputDecoration(labelText: 'Расстояние (метры)', hintText: 'например, 150.75'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
-              autovalidateMode: currentAutovalidateMode,
+              autovalidateMode: generalAutovalidateMode,
               validator: (value) {
                 if (value == null || value.isEmpty) {
                   return 'Введите расстояние';
@@ -371,7 +427,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
           children: [
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(top: 8.0, bottom: 80.0), // Отступ для кнопок внизу
+                padding: const EdgeInsets.only(top: 8.0, bottom: 130.0),
                 itemCount: _stations.length,
                 itemBuilder: (context, index) {
                   return KeepAliveWrapper(
