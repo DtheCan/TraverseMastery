@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
-// ЗАМЕНИТЕ 'traversemastery' на имя вашего проекта, если оно другое
-import 'package:traversemastery/models/theodolite_station.dart';
-import 'package:traversemastery/core/utils/angle_utils.dart';
-
+import 'package:traversemastery/models/theodolite_station.dart'; // Предполагается, что этот файл существует
+import 'package:traversemastery/core/utils/angle_utils.dart';   // Предполагается, что этот файл существует
 
 // Вспомогательный виджет для сохранения состояния дочерних элементов в ListView
 class KeepAliveWrapper extends StatefulWidget {
@@ -27,7 +25,6 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepA
   bool get wantKeepAlive => true; // Сохраняем состояние
 }
 
-
 class TheodoliteForm extends StatefulWidget {
   final Function(List<TheodoliteStation> stations) onSubmit;
 
@@ -42,14 +39,9 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
   List<TheodoliteStation> _stations = [];
   final Uuid _uuid = const Uuid();
 
-  // Ключ: stationId, Значение: Map<String (fieldName), TextEditingController>
   final Map<String, Map<String, TextEditingController>> _controllers = {};
-  // Ключ: stationId, Значение: Map<String (fieldName), String (currentTextValue)>
   final Map<String, Map<String, String>> _temporaryInputValues = {};
-
-  // Флаг, указывающий, была ли уже попытка отправки формы
   bool _formSubmittedOnce = false;
-
 
   @override
   void initState() {
@@ -61,35 +53,26 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
 
   void _initializeControllersForStation(String stationId, {
     String name = '',
-    AngleDMS? angleDMSFromModel, // Угол из основной модели _stations
-    String? distanceFromModel,   // Расстояние из основной модели _stations
+    AngleDMS? angleDMSFromModel,
+    String? distanceFromModel,
   }) {
-    // Получаем текущую станцию из списка _stations, чтобы проверить её сохраненные значения
     TheodoliteStation? currentStationFromList;
     try {
       currentStationFromList = _stations.firstWhere((s) => s.id == stationId);
-    } catch (e) {
-      // Станция может быть еще не в _stations, если это самый первый вызов для новой станции
-    }
+    } catch (e) { /* Станция может быть новой */ }
 
-    final effectiveAngleDMS = angleDMSFromModel ?? AngleDMS(); // Если из модели null, то (0,0,0)
+    final effectiveAngleDMS = angleDMSFromModel ?? AngleDMS();
     final effectiveDistance = distanceFromModel ?? '';
-
-    // Восстанавливаем временные значения, если они есть для этой станции
     final tempValuesForStation = _temporaryInputValues[stationId] ?? {};
 
-    // Логика определения, должно ли поле быть пустым при инициализации
-    // Поле пустое, если:
-    // 1. Нет временного значения И (модельное значение null/0 ИЛИ AngleDMS компоненты все нули)
     bool isAngleActuallyNullOrZeroInModel = (currentStationFromList?.horizontalAngle == null || currentStationFromList?.horizontalAngle == 0.0);
     bool isDistanceActuallyNullOrZeroInModel = (currentStationFromList?.distance == null || currentStationFromList?.distance == 0.0);
 
+    String initialName = tempValuesForStation['name'] ?? name;
     String initialDeg = tempValuesForStation['angle_deg'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.degrees == 0 ? '' : effectiveAngleDMS.degrees.toString());
     String initialMin = tempValuesForStation['angle_min'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.minutes == 0 ? '' : effectiveAngleDMS.minutes.toString());
     String initialSec = tempValuesForStation['angle_sec'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.seconds == 0.0 ? '' : effectiveAngleDMS.seconds.toStringAsFixed(2));
     String initialDist = tempValuesForStation['distance'] ?? (isDistanceActuallyNullOrZeroInModel && effectiveDistance.isEmpty ? '' : effectiveDistance);
-    String initialName = tempValuesForStation['name'] ?? name;
-
 
     final nameController = TextEditingController(text: initialName);
     final angleDegController = TextEditingController(text: initialDeg);
@@ -105,27 +88,21 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
       'distance': distanceController,
     };
 
-    // Добавляем слушателей для сохранения временных значений
     _controllers[stationId]!.forEach((key, controller) {
       controller.addListener(() {
         _temporaryInputValues.putIfAbsent(stationId, () => {})[key] = controller.text;
-        // Если форма уже была отправлена один раз, инициируем повторную валидацию поля при изменении
-        if (_formSubmittedOnce && _formKey.currentState != null) {
-          _formKey.currentState!.validate();
-        }
+        // Валидация при изменении будет происходить через AutovalidateMode.onUserInteraction
+        // в самих TextFormField, если _formSubmittedOnce == true.
+        // Явный вызов _formKey.currentState?.validate() здесь может быть избыточным и приводить
+        // к валидации всей формы при каждом изменении символа, что не всегда желательно.
       });
     });
   }
 
   @override
   void dispose() {
-    _controllers.forEach((stationId, stationControllers) {
-      stationControllers.forEach((_, controller) {
-        // Слушатели удаляются автоматически при dispose контроллера,
-        // но для чистоты можно было бы хранить ссылки на слушатели и удалять их явно.
-        // В данном случае, это не критично.
-        controller.dispose();
-      });
+    _controllers.forEach((_, stationControllers) {
+      stationControllers.forEach((_, controller) => controller.dispose());
     });
     _controllers.clear();
     _temporaryInputValues.clear();
@@ -136,10 +113,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     setState(() {
       final stationId = _uuid.v4();
       final newStation = TheodoliteStation(id: stationId, stationName: name, horizontalAngle: initialAngleDecimal);
-      _stations.add(newStation); // Добавляем в модель ДО инициализации контроллеров
-
-      // При добавлении новой станции, ее значения в _temporaryInputValues еще не будет,
-      // так что контроллеры получат значения из newStation (или пустые, если там null/0)
+      _stations.add(newStation);
       _initializeControllersForStation(
         stationId,
         name: newStation.stationName,
@@ -158,10 +132,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     }
     setState(() {
       final stationId = _stations[index].id;
-      // Удаляем слушателей и диспозим контроллеры
-      _controllers[stationId]?.forEach((_, controller) {
-        controller.dispose(); // Слушатели удалятся вместе с контроллером
-      });
+      _controllers[stationId]?.forEach((_, controller) => controller.dispose());
       _controllers.remove(stationId);
       _temporaryInputValues.remove(stationId);
       _stations.removeAt(index);
@@ -169,12 +140,13 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
   }
 
   void _submitForm() {
-    setState(() {
-      _formSubmittedOnce = true; // Устанавливаем флаг, что была попытка отправки
-    });
+    if (!_formSubmittedOnce) {
+      setState(() {
+        _formSubmittedOnce = true;
+      });
+    }
 
-    // Обновляем данные в _stations из контроллеров (или из _temporaryInputValues, которые уже в контроллерах)
-    bool conversionError = false;
+    bool conversionErrorEncountered = false;
     for (int i = 0; i < _stations.length; i++) {
       final stationId = _stations[i].id;
       final stationControllers = _controllers[stationId];
@@ -186,7 +158,6 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
         final secStr = stationControllers['angle_sec']!.text;
         final distStr = stationControllers['distance']!.text;
 
-        // Расстояние
         if (distStr.isEmpty) {
           _stations[i].distance = null;
         } else {
@@ -194,17 +165,13 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
           if (distVal != null && distVal > 0) {
             _stations[i].distance = distVal;
           } else {
-            _stations[i].distance = null; // Невалидное расстояние сбрасываем, валидатор поймает
-            // conversionError = true; // Можно добавить флаг, если нужно отдельное сообщение
+            _stations[i].distance = null;
           }
         }
 
-        // Угол
         if (degStr.isEmpty && minStr.isEmpty && secStr.isEmpty) {
           _stations[i].horizontalAngle = null;
         } else {
-          // Если хотя бы одно поле угла заполнено, пытаемся собрать.
-          // Валидаторы полей должны обеспечить, что если одно заполнено, то и другие (или выдать ошибку "Нужно").
           int? degrees = int.tryParse(degStr.isNotEmpty ? degStr : "0");
           int? minutes = int.tryParse(minStr.isNotEmpty ? minStr : "0");
           double? seconds = double.tryParse(secStr.isNotEmpty ? secStr : "0.0");
@@ -213,31 +180,29 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
             if (minutes >= 0 && minutes < 60 && seconds >= 0.0 && seconds < 60.0) {
               _stations[i].horizontalAngle = AngleDMS(degrees: degrees, minutes: minutes, seconds: seconds).toDecimalDegrees();
             } else {
-              _stations[i].horizontalAngle = null; // Невалидные минуты/секунды, валидатор поймает
-              conversionError = true;
+              _stations[i].horizontalAngle = null;
+              conversionErrorEncountered = true;
             }
           } else {
-            _stations[i].horizontalAngle = null; // Ошибка парсинга, валидатор поймает
-            conversionError = true;
+            _stations[i].horizontalAngle = null;
+            conversionErrorEncountered = true;
           }
         }
       }
     }
 
-    if (conversionError && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка в значениях минут/секунд. Проверьте поля.')),
-      );
-      // Не продолжаем, если была явная ошибка конвертации, даже если валидаторы формы еще не сработали
-      // return; // Раскомментировать, если хотим остановить здесь. Но лучше дать форме самой отвалидироваться.
+    // Небольшое уведомление о проблемах конвертации, если они были, но основная работа у валидаторов.
+    if (conversionErrorEncountered && mounted) {
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   const SnackBar(content: Text('Проверьте корректность значений углов или расстояний.')),
+      // );
     }
 
-
     if (_formKey.currentState!.validate()) {
-      // Очищаем временные значения ПОСЛЕ успешной отправки,
-      // так как они теперь сохранены в _stations.
       _temporaryInputValues.clear();
-      _formSubmittedOnce = false; // Сбрасываем флаг для следующего цикла ввода
+      setState(() {
+        _formSubmittedOnce = false; // Сбрасываем для следующего цикла ввода
+      });
       widget.onSubmit(List.from(_stations));
     } else {
       if (mounted) {
@@ -245,19 +210,14 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
           const SnackBar(content: Text('Пожалуйста, исправьте ошибки в полях ввода.')),
         );
       }
-      // Не очищаем _temporaryInputValues, чтобы пользователь не потерял ввод при ошибке валидации
+      // _formSubmittedOnce остается true, чтобы поля продолжали валидироваться onUserInteraction
     }
   }
-
 
   Widget _buildStationInput(int index) {
     final station = _stations[index];
     final stationId = station.id;
 
-    // Контроллеры должны быть уже инициализированы при добавлении станции
-    // или при первом построении из initState.
-    // Если по какой-то причине контроллера нет (не должно происходить в нормальном потоке),
-    // инициализируем его здесь.
     if (!_controllers.containsKey(stationId)) {
       _initializeControllersForStation(
         stationId,
@@ -266,15 +226,10 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
         distanceFromModel: station.distance?.toString(),
       );
     }
-
     final stationSpecificControllers = _controllers[stationId]!;
-
-    // Валидация будет происходить при взаимодействии, если _formSubmittedOnce = true,
-    // или при вызове _formKey.currentState.validate()
-    AutovalidateMode currentAutovalidateMode = _formSubmittedOnce
+    final currentAutovalidateMode = _formSubmittedOnce
         ? AutovalidateMode.onUserInteraction
         : AutovalidateMode.disabled;
-
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
@@ -297,7 +252,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                     autovalidateMode: currentAutovalidateMode,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Название?'; // Имя станции делаем обязательным
+                        return 'Название станции?';
                       }
                       return null;
                     },
@@ -366,7 +321,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                     controller: stationSpecificControllers['angle_sec'],
                     decoration: const InputDecoration(labelText: 'Сек."', hintText: "СС.сс"),
                     keyboardType: const TextInputType.numberWithOptions(signed: false, decimal: true),
-                    inputFormatters: [ FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')), LengthLimitingTextInputFormatter(5) ],
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')), LengthLimitingTextInputFormatter(5)],
                     textAlign: TextAlign.center,
                     autovalidateMode: currentAutovalidateMode,
                     validator: (value) {
@@ -387,17 +342,11 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
             const SizedBox(height: 12),
             TextFormField(
               controller: stationSpecificControllers['distance'],
-              decoration: const InputDecoration(labelText: 'Расстояние до след. (метры)', hintText: 'например, 150.75'),
+              decoration: const InputDecoration(labelText: 'Расстояние (метры)', hintText: 'например, 150.75'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
               autovalidateMode: currentAutovalidateMode,
               validator: (value) {
-                // Если мы хотим, чтобы расстояние было необязательным для последней станции в ЗАМКНУТОМ ходе,
-                // то для последней станции (index == _stations.length - 1) это поле может быть пустым.
-                // Но для простоты сейчас оно всегда обязательно, если не пустое
                 if (value == null || value.isEmpty) {
-                  // Для замкнутого хода обычно все расстояния нужны.
-                  // Если это последняя станция и мы хотим сделать его необязательным:
-                  // if (index == _stations.length - 1 && _stations.length > 1) return null;
                   return 'Введите расстояние';
                 }
                 final distance = double.tryParse(value);
@@ -418,7 +367,6 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
       bottom: false,
       child: Form(
         key: _formKey,
-        // autovalidateMode теперь управляется индивидуально в TextFormField или при вызове validate()
         child: Column(
           children: [
             Expanded(
@@ -427,7 +375,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
                 itemCount: _stations.length,
                 itemBuilder: (context, index) {
                   return KeepAliveWrapper(
-                    key: ValueKey(_stations[index].id), // Уникальный ключ для сохранения состояния
+                    key: ValueKey(_stations[index].id),
                     child: _buildStationInput(index),
                   );
                 },
@@ -446,7 +394,7 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
         left: 16.0,
         right: 16.0,
         top: 10.0,
-        bottom: MediaQuery.of(context).padding.bottom + 10.0, // Учитываем нижний SafeArea
+        bottom: MediaQuery.of(context).padding.bottom + 10.0,
       ),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
@@ -485,4 +433,3 @@ class _TheodoliteFormState extends State<TheodoliteForm> {
     );
   }
 }
-
