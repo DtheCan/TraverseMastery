@@ -96,6 +96,55 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
         title: const Text('Ввод данных теодолитного хода'),
         centerTitle: true,
       ),
+      // --- ДОБАВЛЕНО БОКОВОЕ МЕНЮ (DRAWER) ---
+      drawer: Drawer(
+        child: ListView(
+          // Important: Remove any padding from the ListView.
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer, // Пример цвета
+              ),
+              child: Text(
+                'Меню',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer, // Пример цвета
+                  fontSize: 24,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('История расчетов'),
+              onTap: () {
+                // TODO: Добавить логику для перехода на экран истории
+                Navigator.pop(context); // Закрываем Drawer
+                _showErrorSnackBar('Пункт "История расчетов" еще не реализован.');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Настройки'),
+              onTap: () {
+                // TODO: Добавить логику для перехода на экран настроек
+                Navigator.pop(context); // Закрываем Drawer
+                _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('О приложении'),
+              onTap: () {
+                // TODO: Добавить логику для отображения информации о приложении
+                Navigator.pop(context); // Закрываем Drawer
+                _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
+              },
+            ),
+          ],
+        ),
+      ),
+      // --- КОНЕЦ БОКОВОГО МЕНЮ ---
       body: SafeArea(
         child: _isLoading
             ? const Center(
