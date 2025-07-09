@@ -1,178 +1,224 @@
 import 'dart:math';
+import 'package:uuid/uuid.dart'; // Для генерации уникальных ID
+// Убедитесь, что пути импорта ВЕРНЫ для вашей структуры проекта:
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/traverse_calculation_result.dart';
+// import 'package:traversemastery/models/point_coordinates.dart'; // Заменено на поля в TheodoliteStation
+
+const _uuid = Uuid();
 
 class TraverseCalculatorService {
+  // Эти значения можно сделать параметрами метода или получать из настроек
   final double defaultPermissibleAngularMisclosurePerMinutePerStation = 1.0; // в минутах дуги на станцию
   final double defaultRelativeLinearMisclosureDenominator = 2000; // 1:M
-  final PointCoordinates initialCoordinates = PointCoordinates(stationName: "Т1 (Нач.)", x: 1000.0, y: 1000.0);
-  final double initialDirectionAngle = 45.0; // Начальный дирекционный угол в градусах (например, СВ)
 
-  Future<TraverseCalculationResult> calculateClosedTraverse(
-      List<TheodoliteStation> stations) async {
-    if (stations.length < 3) {
-      throw ArgumentError("Для замкнутого теодолитного хода необходимо минимум 3 станции.");
+  // Начальные данные теперь лучше передавать в метод расчета, если они могут меняться
+  // final PointCoordinates initialCoordinates = PointCoordinates(stationName: "Т1 (Нач.)", x: 1000.0, y: 1000.0); // Заменено
+  // final double initialDirectionAngle = 45.0; // Заменено
+
+  Future<TraverseCalculationResult> calculateClosedTraverse({
+    required List<TheodoliteStation> inputStations, // Используем копию, чтобы не изменять исходный список напрямую
+    required TheodoliteStation initialStationData, // Начальные X, Y и имя для первой точки
+    required double initialDirectionAngleDegrees, // Начальный дирекционный угол в градусах
+    String? calculationName, // Опциональное имя для расчета
+  }) async {
+    if (inputStations.length < 3) {
+      throw ArgumentError(
+          "Для замкнутого теодолитного хода необходимо минимум 3 станции.");
     }
+
+    List<TheodoliteStation> stations = inputStations
+        .map((s) => s.copyWith(id: s.id.isEmpty ? _uuid.v4() : s.id)) // Гарантируем наличие ID
+        .toList();
+
+
     for (int i = 0; i < stations.length; i++) {
       final station = stations[i];
       if (station.horizontalAngle == null) {
-        throw ArgumentError("Отсутствует горизонтальный угол для станции ${station.stationName.isNotEmpty ? station.stationName : '№${i + 1}'}");
+        throw ArgumentError(
+            "Отсутствует горизонтальный угол для станции ${station.stationName.isNotEmpty ? station.stationName : '№${i + 1}'}");
       }
       if (station.distance == null) {
-        throw ArgumentError("Отсутствует расстояние для стороны от станции ${station.stationName.isNotEmpty ? station.stationName : '№${i + 1}'}");
+        throw ArgumentError(
+            "Отсутствует расстояние для стороны от станции ${station.stationName.isNotEmpty ? station.stationName : '№${i + 1}'}");
       }
     }
 
-    double sumMeasuredAngles = _calculateSumMeasuredAngles(stations);
     int n = stations.length;
+
+    // 1. Угловые невязки
+    double sumMeasuredAngles =
+    stations.fold(0.0, (sum, s) => sum + (s.horizontalAngle ?? 0.0));
     double theoreticalSumAngles = (n - 2) * 180.0;
     double angularMisclosure = sumMeasuredAngles - theoreticalSumAngles;
-    // Допустимая невязка в градусах (1 минута = 1/60 градуса)
-    double permissibleAngularMisclosure = (defaultPermissibleAngularMisclosurePerMinutePerStation / 60.0) * sqrt(n);
-    bool isAngularMisclosureAcceptable = angularMisclosure.abs() <= permissibleAngularMisclosure;
+    double permissibleAngularMisclosure =
+        (defaultPermissibleAngularMisclosurePerMinutePerStation / 60.0) *
+            sqrt(n);
+    bool isAngularMisclosureAcceptable =
+        angularMisclosure.abs() <= permissibleAngularMisclosure;
 
-    List<double> correctedAngles = _correctAngles(stations, angularMisclosure, isAngularMisclosureAcceptable);
-    List<double> directionAngles = _calculateDirectionAngles(correctedAngles, initialDirectionAngle, n);
+    // 2. Исправление углов и запись в копии станций
+    double angleCorrectionPerStation = isAngularMisclosureAcceptable
+        ? -angularMisclosure / n
+        : 0.0; // Не исправляем, если невязка недопустима
 
-    List<double> deltaX = [];
-    List<double> deltaY = [];
-    List<double> distances = stations.map((s) => s.distance!).toList();
+    List<TheodoliteStation> stationsWithCorrectedAngles = [];
+    double sumCorrectedAngles = 0;
+    for (var station in stations) {
+      double correctedAngle = (station.horizontalAngle ?? 0.0) + angleCorrectionPerStation;
+      stationsWithCorrectedAngles.add(station.copyWith(horizontalAngle: correctedAngle)); // Обновляем угол в копии
+      sumCorrectedAngles += correctedAngle;
+    }
+
+
+    // 3. Расчет дирекционных углов и запись в копии станций
+    List<TheodoliteStation> stationsWithDirectionAngles = List.from(stationsWithCorrectedAngles); // Создаем новую изменяемую копию
+    if (n > 0) {
+      stationsWithDirectionAngles[0] = stationsWithDirectionAngles[0].copyWith(directionAngle: initialDirectionAngleDegrees);
+      for (int i = 0; i < n - 1; i++) {
+        double prevAlpha = stationsWithDirectionAngles[i].directionAngle!;
+        double currentBeta = stationsWithDirectionAngles[(i + 1) % n].horizontalAngle!; // Используем исправленный угол следующей станции
+        double nextAlpha = (prevAlpha + 180.0 - currentBeta + 360.0) % 360.0;
+        stationsWithDirectionAngles[i+1] = stationsWithDirectionAngles[i+1].copyWith(directionAngle: nextAlpha);
+      }
+      // Дирекционный угол для последней стороны (от последней к первой станции)
+      // Нужен для расчета последнего приращения
+      // Если это замкнутый ход, то этот угол должен быть alpha_n-1 + 180 - beta_0
+      // Но для списка станций он для стороны stationsWithDirectionAngles[n-1]
+      // то есть stationsWithDirectionAngles[n-1].directionAngle уже должен быть вычислен на предыдущем шаге
+    }
+
+
+    // 4. Расчет приращений координат (dX, dY) и запись в копии станций
+    List<TheodoliteStation> stationsWithDeltas = List.from(stationsWithDirectionAngles);
+    List<double> deltaXList = [];
+    List<double> deltaYList = [];
+    double sumDistances = 0;
 
     for (int i = 0; i < n; i++) {
-      double alphaRad = _degreesToRadians(directionAngles[i]);
-      deltaX.add(distances[i] * cos(alphaRad));
-      deltaY.add(distances[i] * sin(alphaRad));
+      double alphaRad = _degreesToRadians(stationsWithDeltas[i].directionAngle!);
+      double distance = stationsWithDeltas[i].distance!;
+      double dX = distance * cos(alphaRad);
+      double dY = distance * sin(alphaRad);
+      deltaXList.add(dX);
+      deltaYList.add(dY);
+      stationsWithDeltas[i] = stationsWithDeltas[i].copyWith(deltaX: dX, deltaY: dY);
+      sumDistances += distance;
     }
 
-    double sumDeltaX = deltaX.reduce((a, b) => a + b);
-    double sumDeltaY = deltaY.reduce((a, b) => a + b);
-    double linearMisclosureX = -sumDeltaX;
-    double linearMisclosureY = -sumDeltaY;
+    // 5. Линейные невязки
+    double sumDeltaXUncorrected = deltaXList.reduce((a, b) => a + b);
+    double sumDeltaYUncorrected = deltaYList.reduce((a, b) => a + b);
+    double linearMisclosureX = -sumDeltaXUncorrected; // fx
+    double linearMisclosureY = -sumDeltaYUncorrected; // fy
     double absoluteLinearMisclosure = sqrt(pow(linearMisclosureX, 2) + pow(linearMisclosureY, 2));
-    double perimeter = distances.reduce((a, b) => a + b);
-    double relativeLinearMisclosure = perimeter > 0 && absoluteLinearMisclosure > 0 ? perimeter / absoluteLinearMisclosure : double.infinity;
-    bool isLinearMisclosureAcceptable = relativeLinearMisclosure >= defaultRelativeLinearMisclosureDenominator || absoluteLinearMisclosure == 0;
+    double relativeLinearMisclosure = sumDistances > 0 && absoluteLinearMisclosure > 0
+        ? absoluteLinearMisclosure / sumDistances // f_abs / P  (для формата 1:M потом инвертируем)
+        : 0.0; // или double.infinity, если абсолютная 0
+
+    // Для формата 1:M, где M = P / f_abs
+    double relativeLinearMisclosureDenominatorResult = sumDistances > 0 && absoluteLinearMisclosure > 0
+        ? sumDistances / absoluteLinearMisclosure
+        : double.infinity;
 
 
-    List<double> correctedDeltaX = _correctDeltas(deltaX, linearMisclosureX, distances, perimeter, isLinearMisclosureAcceptable && isAngularMisclosureAcceptable);
-    List<double> correctedDeltaY = _correctDeltas(deltaY, linearMisclosureY, distances, perimeter, isLinearMisclosureAcceptable && isAngularMisclosureAcceptable);
-
-    // Координаты считаем только если обе невязки в допуске
-    List<PointCoordinates> calculatedCoordinates = (isAngularMisclosureAcceptable && isLinearMisclosureAcceptable)
-        ? _calculateCoordinates(stations, correctedDeltaX, correctedDeltaY, initialCoordinates)
-        : _generatePlaceholderCoordinates(stations, initialCoordinates);
+    bool isLinearMisclosureAcceptable =
+        (relativeLinearMisclosureDenominatorResult >= defaultRelativeLinearMisclosureDenominator) || absoluteLinearMisclosure == 0;
 
 
+    // 6. Исправление приращений и запись в копии станций
+    List<TheodoliteStation> stationsWithCorrectedDeltas = List.from(stationsWithDeltas);
+    List<double> correctedDeltaXList = [];
+    List<double> correctedDeltaYList = [];
+
+    // Исправляем только если обе невязки в допуске (или только угловая, если так принято)
+    // В вашем коде было: isLinearMisclosureAcceptable && isAngularMisclosureAcceptable
+    // Это правильный подход для окончательных координат.
+    bool canCorrectCoordinates = isAngularMisclosureAcceptable && isLinearMisclosureAcceptable;
+
+    for (int i = 0; i < n; i++) {
+      double originalDx = stationsWithDeltas[i].deltaX!;
+      double originalDy = stationsWithDeltas[i].deltaY!;
+      double distance = stationsWithDeltas[i].distance!;
+      double dxCorrection = 0;
+      double dyCorrection = 0;
+
+      if (canCorrectCoordinates && sumDistances > 0) {
+        dxCorrection = (linearMisclosureX * distance.abs()) / sumDistances;
+        dyCorrection = (linearMisclosureY * distance.abs()) / sumDistances;
+      }
+
+      double correctedDx = originalDx + dxCorrection;
+      double correctedDy = originalDy + dyCorrection;
+
+      correctedDeltaXList.add(correctedDx);
+      correctedDeltaYList.add(correctedDy);
+      stationsWithCorrectedDeltas[i] = stationsWithCorrectedDeltas[i].copyWith(deltaX: correctedDx, deltaY: correctedDy);
+    }
+
+    // 7. Расчет координат и запись в копии станций
+    List<TheodoliteStation> finalStations = List.from(stationsWithCorrectedDeltas);
+    if (n > 0) {
+      // Начальная станция получает X, Y из initialStationData
+      // Имя и ID у нее уже есть из inputStations (или сгенерирован)
+      finalStations[0] = finalStations[0].copyWith(
+        coordinateX: initialStationData.coordinateX,
+        coordinateY: initialStationData.coordinateY,
+        // stationName: initialStationData.stationName // Имя должно браться из inputStations
+      );
+
+      for (int i = 0; i < n - 1; i++) { // Расчет координат для n-1 следующих станций
+        double prevX = finalStations[i].coordinateX!;
+        double prevY = finalStations[i].coordinateY!;
+        double currentCorrectedDx = finalStations[i].deltaX!; // Используем dX от i-й станции к (i+1)-й
+        double currentCorrectedDy = finalStations[i].deltaY!;
+
+        finalStations[i+1] = finalStations[i+1].copyWith(
+          coordinateX: prevX + currentCorrectedDx,
+          coordinateY: prevY + currentCorrectedDy,
+        );
+      }
+      // Координаты последней точки (n-1) вычислены.
+      // Приращения от последней точки к первой (finalStations[n-1].deltaX/Y)
+      // должны замкнуть ход на finalStations[0].coordinateX/Y
+      // Это можно использовать для проверки.
+      // double finalCheckX = finalStations[n-1].coordinateX! + finalStations[n-1].deltaX!;
+      // double finalCheckY = finalStations[n-1].coordinateY! + finalStations[n-1].deltaY!;
+      // print("Проверка замыкания X: $finalCheckX (должно быть ${finalStations[0].coordinateX})");
+      // print("Проверка замыкания Y: $finalCheckY (должно быть ${finalStations[0].coordinateY})");
+    }
+
+
+    // Создание и возврат TraverseCalculationResult
     return TraverseCalculationResult(
-      inputStations: stations,
+      calculationId: _uuid.v4(), // Генерируем ID для самого расчета
       calculationDate: DateTime.now(),
+      calculationName: calculationName,
+      stations: finalStations, // Список станций со всеми вычисленными данными
+      initialAzimuth: initialDirectionAngleDegrees,
+      startPointCoordinates: initialStationData, // Сохраняем начальные данные
       sumMeasuredAngles: sumMeasuredAngles,
-      theoreticalSumAngles: theoreticalSumAngles,
+      sumCorrectedAngles: sumCorrectedAngles, // Сумма уже исправленных углов
+      sumTheoreticalAngles: theoreticalSumAngles,
+      sumDistances: sumDistances,
       angularMisclosure: angularMisclosure,
       permissibleAngularMisclosure: permissibleAngularMisclosure,
-      isAngularMisclosureAcceptable: isAngularMisclosureAcceptable,
-      correctedAngles: correctedAngles,
-      directionAngles: directionAngles,
-      deltaX: deltaX,
-      deltaY: deltaY,
-      sumDeltaX: sumDeltaX,
-      sumDeltaY: sumDeltaY,
-      linearMisclosureX: linearMisclosureX,
-      linearMisclosureY: linearMisclosureY,
-      absoluteLinearMisclosure: absoluteLinearMisclosure,
-      relativeLinearMisclosure: relativeLinearMisclosure,
-      isLinearMisclosureAcceptable: isLinearMisclosureAcceptable,
-      correctedDeltaX: correctedDeltaX,
-      correctedDeltaY: correctedDeltaY,
-      calculatedCoordinates: calculatedCoordinates,
+      isAngularOk: isAngularMisclosureAcceptable,
+      sumDeltaX: sumDeltaXUncorrected, // Сумма НЕИСПРАВЛЕННЫХ приращений для отчета
+      sumDeltaY: sumDeltaYUncorrected, // Сумма НЕИСПРАВЛЕННЫХ приращений для отчета
+      linearMisclosureAbsolute: absoluteLinearMisclosure,
+      linearMisclosureRelative: relativeLinearMisclosureDenominatorResult, // Сохраняем знаменатель M (1:M)
+      permissibleLinearMisclosureRelative: defaultRelativeLinearMisclosureDenominator.toDouble(), // Допустимый знаменатель M
+      isLinearOk: isLinearMisclosureAcceptable,
     );
-  }
-
-  double _calculateSumMeasuredAngles(List<TheodoliteStation> stations) {
-    return stations.fold(0.0, (sum, station) => sum + (station.horizontalAngle ?? 0.0));
-  }
-
-  List<double> _correctAngles(List<TheodoliteStation> stations, double misclosure, bool isAcceptable) {
-    if (!isAcceptable) {
-      return stations.map((s) => s.horizontalAngle ?? 0.0).toList();
-    }
-    double correctionPerAngle = -misclosure / stations.length;
-    return stations.map((s) => (s.horizontalAngle ?? 0.0) + correctionPerAngle).toList();
-  }
-
-  List<double> _calculateDirectionAngles(List<double> correctedInnerAngles, double initialAlpha, int n) {
-    List<double> alphas = List.filled(n, 0.0);
-    if (n == 0) return alphas;
-
-    alphas[0] = initialAlpha; // Дирекционный угол первой стороны
-
-    // Предполагаем, что correctedInnerAngles - это ИЗМЕРЕННЫЕ (и исправленные) ВНУТРЕННИЕ углы полигона.
-    // Обход по часовой стрелке (правые углы).
-    // α_след = (α_пред + 180° - β_внутр_след) mod 360°
-    // β_внутр_след - это угол на вершине, где заканчивается текущая сторона и начинается следующая.
-    // correctedInnerAngles[0] - внутренний угол на СТАНЦИИ 0 (начало первой стороны)
-    // correctedInnerAngles[1] - внутренний угол на СТАНЦИИ 1 (конец первой стороны, начало второй)
-
-    for (int i = 0; i < n - 1; i++) {
-      // correctedInnerAngles[i+1] - это угол на вершине (i+1)-й станции,
-      // то есть угол между стороной (i -> i+1) и стороной (i+1 -> i+2)
-      alphas[i+1] = (alphas[i] + 180.0 - correctedInnerAngles[(i+1) % n] + 360.0) % 360.0;
-    }
-    return alphas;
-  }
-
-  List<double> _correctDeltas(List<double> deltas, double misclosureComponent, List<double> lengths, double perimeter, bool isAcceptable) {
-    if (!isAcceptable || perimeter == 0) {
-      return List.from(deltas);
-    }
-    List<double> corrected = [];
-    for (int i = 0; i < deltas.length; i++) {
-      double correction = (-misclosureComponent * lengths[i].abs()) / perimeter; // Используем abs(длины)
-      corrected.add(deltas[i] + correction);
-    }
-    return corrected;
-  }
-
-  List<PointCoordinates> _calculateCoordinates(
-      List<TheodoliteStation> stations,
-      List<double> correctedDeltaX,
-      List<double> correctedDeltaY,
-      PointCoordinates startPoint) {
-    List<PointCoordinates> coordinates = [startPoint];
-    double currentX = startPoint.x;
-    double currentY = startPoint.y;
-
-    for (int i = 0; i < correctedDeltaX.length; i++) {
-      // Если это не последняя итераия (т.е. мы не считаем координаты для возврата в начальную точку по приращениям)
-      if (i < stations.length -1) { // Мы получим N-1 новых точек + 1 начальная = N точек
-        currentX += correctedDeltaX[i];
-        currentY += correctedDeltaY[i];
-        String stationName = stations[i + 1].stationName.isNotEmpty ? stations[i + 1].stationName : "Тчк. ${i + 2}";
-        coordinates.add(PointCoordinates(stationName: stationName, x: currentX, y: currentY));
-      } else if (i == stations.length - 1) {
-        // Это приращение от последней точки к начальной. Можно проверить замыкание.
-        // double closingX = currentX + correctedDeltaX[i];
-        // double closingY = currentY + correctedDeltaY[i];
-        // print("Проверка замыкания: X=${closingX.toStringAsFixed(3)}, Y=${closingY.toStringAsFixed(3)} (Должно быть ${startPoint.x}, ${startPoint.y})");
-      }
-    }
-    // Для замкнутого хода, последняя вычисленная точка должна совпасть с начальной (после исправлений)
-    // Наш список coordinates будет содержать N точек, если N - количество станций.
-    // Первая - начальная, остальные N-1 - вычисленные.
-    return coordinates;
-  }
-
-  // Метод для генерации плейсхолдеров координат, если расчет не удался или невязки недопустимы
-  List<PointCoordinates> _generatePlaceholderCoordinates(List<TheodoliteStation> stations, PointCoordinates startPoint) {
-    List<PointCoordinates> placeholderCoordinates = [startPoint];
-    for(int i = 0; i < stations.length -1; i++) {
-      String stationName = stations[i + 1].stationName.isNotEmpty ? stations[i + 1].stationName : "Тчк. ${i + 2}";
-      placeholderCoordinates.add(PointCoordinates(stationName: stationName, x: 0.0, y: 0.0)); // или null, или NaN
-    }
-    return placeholderCoordinates;
   }
 
   double _degreesToRadians(double degrees) {
     return degrees * (pi / 180.0);
   }
+
+// Эти вспомогательные методы из вашего оригинального кода [1] больше не нужны в таком виде,
+// так как логика встроена в основной метод и использует copyWith для обновления станций.
+// _calculateSumMeasuredAngles, _correctAngles, _calculateDirectionAngles, _correctDeltas, _calculateCoordinates, _generatePlaceholderCoordinates
 }
+

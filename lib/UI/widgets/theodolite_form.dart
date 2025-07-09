@@ -1,488 +1,480 @@
+// lib/ui/widgets/theodolite_form.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:traversemastery/models/theodolite_station.dart';
+import 'package:traversemastery/models/full_traverse_input.dart'; // Наша новая модель
 import 'package:uuid/uuid.dart';
 
-// УБЕДИТЕСЬ, ЧТО ЭТИ ПУТИ ВЕРНЫ И ФАЙЛЫ СУЩЕСТВУЮТ В ВАШЕМ ПРОЕКТЕ.
-import 'package:traversemastery/models/theodolite_station.dart';
-import 'package:traversemastery/core/utils/angle_utils.dart';
+const _uuid = Uuid();
 
+class _StationInputRow { // Остается без изменений для строк станций
+  final String id;
+  final TextEditingController nameController;
+  final TextEditingController angleController;
+  final TextEditingController distanceController;
+  final FocusNode nameFocusNode;
+  final FocusNode angleFocusNode;
+  final FocusNode distanceFocusNode;
 
-// Вспомогательный виджет для сохранения состояния дочерних элементов в ListView
-class KeepAliveWrapper extends StatefulWidget {
-  final Widget child;
-  const KeepAliveWrapper({required Key key, required this.child}) : super(key: key);
+  _StationInputRow()
+      : id = _uuid.v4(),
+        nameController = TextEditingController(),
+        angleController = TextEditingController(),
+        distanceController = TextEditingController(),
+        nameFocusNode = FocusNode(),
+        angleFocusNode = FocusNode(),
+        distanceFocusNode = FocusNode();
 
-  @override
-  State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
-}
-
-class _KeepAliveWrapperState extends State<KeepAliveWrapper> with AutomaticKeepAliveClientMixin {
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
+  void dispose() {
+    nameController.dispose();
+    angleController.dispose();
+    distanceController.dispose();
+    nameFocusNode.dispose();
+    angleFocusNode.dispose();
+    distanceFocusNode.dispose();
   }
-
-  @override
-  bool get wantKeepAlive => true;
 }
 
 class TheodoliteForm extends StatefulWidget {
-  final Function(List<TheodoliteStation> stations) onSubmit;
-  const TheodoliteForm({super.key, required this.onSubmit});
+  // onSubmit теперь передает FullTraverseInput
+  final Function(FullTraverseInput fullInput) onSubmit;
+
+  const TheodoliteForm({
+    super.key,
+    required this.onSubmit,
+  });
 
   @override
-  State<TheodoliteForm> createState() => _TheodoliteFormState();
+  // ignore: library_private_types_in_public_api
+  TheodoliteFormStateImplementation createState() => TheodoliteFormStateImplementation();
 }
 
-class _TheodoliteFormState extends State<TheodoliteForm> {
-  final _formKey = GlobalKey<FormState>();
-  List<TheodoliteStation> _stations = [];
-  final Uuid _uuid = const Uuid();
+class TheodoliteFormStateImplementation extends State<TheodoliteForm> {
+  // Ключи для форм
+  final _initialDataFormKey = GlobalKey<FormState>(); // Для начальных данных
+  final _stationsFormKey = GlobalKey<FormState>();    // Для списка станций
 
-  final Map<String, Map<String, TextEditingController>> _controllers = {};
-  final Map<String, Map<String, String>> _temporaryInputValues = {};
-  final Map<String, Map<String, String?>> _inlineFieldErrors = {};
-  bool _formSubmittedOnce = false;
+  // Контроллеры для начальных данных
+  final TextEditingController _calculationNameController = TextEditingController();
+  final TextEditingController _initialXController = TextEditingController();
+  final TextEditingController _initialYController = TextEditingController();
+  final TextEditingController _initialAzimuthController = TextEditingController();
+
+  final List<_StationInputRow> _stationRows = [];
+  final ScrollController _scrollController = ScrollController();
+  static const int _minStationsForClosedTraverse = 3;
 
   @override
   void initState() {
     super.initState();
-    _addStation(name: "Т1");
-    _addStation(name: "Т2");
-    _addStation(name: "Т3");
+    // Значения по умолчанию для начальных данных
+    _initialXController.text = "1000.0";
+    _initialYController.text = "1000.0";
+    _initialAzimuthController.text = "0.0";
+    _calculationNameController.text = "Новый расчет ${DateTime.now().day}.${DateTime.now().month}";
+
+    for (int i = 0; i < _minStationsForClosedTraverse; i++) {
+      _addStationRowInternal(initialAdd: true);
+    }
   }
 
   @override
   void dispose() {
-    _controllers.forEach((_, stationControllers) {
-      stationControllers.forEach((_, controller) => controller.dispose());
-    });
-    _controllers.clear();
-    _temporaryInputValues.clear();
-    _inlineFieldErrors.clear();
+    _calculationNameController.dispose();
+    _initialXController.dispose();
+    _initialYController.dispose();
+    _initialAzimuthController.dispose();
+
+    for (var row in _stationRows) {
+      row.dispose();
+    }
+    _scrollController.dispose();
     super.dispose();
   }
 
-  void _initializeControllersForStation(String stationId, {
-    String name = '',
-    AngleDMS? angleDMSFromModel,
-    String? distanceFromModel,
-  }) {
-    TheodoliteStation? currentStationFromList;
-    try {
-      currentStationFromList = _stations.firstWhere((s) => s.id == stationId);
-    } catch (e) { /* Новая станция */ }
-
-    final effectiveAngleDMS = angleDMSFromModel ?? AngleDMS();
-    final effectiveDistance = distanceFromModel ?? '';
-    final tempValuesForStation = _temporaryInputValues[stationId] ?? {};
-
-    bool isAngleActuallyNullOrZeroInModel = (currentStationFromList?.horizontalAngle == null || currentStationFromList?.horizontalAngle == 0.0);
-    bool isDistanceActuallyNullOrZeroInModel = (currentStationFromList?.distance == null || currentStationFromList?.distance == 0.0);
-
-    String initialName = tempValuesForStation['name'] ?? name;
-    String initialDeg = tempValuesForStation['angle_deg'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.degrees == 0 ? '' : effectiveAngleDMS.degrees.toString());
-    String initialMin = tempValuesForStation['angle_min'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.minutes == 0 ? '' : effectiveAngleDMS.minutes.toString());
-    String initialSec = tempValuesForStation['angle_sec'] ?? (isAngleActuallyNullOrZeroInModel && effectiveAngleDMS.seconds == 0.0 ? '' : effectiveAngleDMS.seconds.toStringAsFixed(2));
-    String initialDist = tempValuesForStation['distance'] ?? (isDistanceActuallyNullOrZeroInModel && effectiveDistance.isEmpty ? '' : effectiveDistance);
-
-    _controllers[stationId] = {
-      'name': TextEditingController(text: initialName),
-      'angle_deg': TextEditingController(text: initialDeg),
-      'angle_min': TextEditingController(text: initialMin),
-      'angle_sec': TextEditingController(text: initialSec),
-      'distance': TextEditingController(text: initialDist),
-    };
-
-    _controllers[stationId]!.forEach((key, controller) {
-      controller.addListener(() {
-        _temporaryInputValues.putIfAbsent(stationId, () => {})[key] = controller.text;
-      });
-    });
-  }
-
-  void _addStation({String name = '', double? initialAngleDecimal}) {
+  void _addStationRowInternal({bool requestFocus = false, bool initialAdd = false}) {
+    // Логика добавления строки станции (без изменений)
     setState(() {
-      final stationId = _uuid.v4();
-      final newStation = TheodoliteStation(id: stationId, stationName: name, horizontalAngle: initialAngleDecimal);
-      _stations.add(newStation);
-      _initializeControllersForStation(
-        stationId,
-        name: newStation.stationName,
-        angleDMSFromModel: AngleDMS.fromDecimalDegrees(newStation.horizontalAngle),
-        distanceFromModel: newStation.distance?.toString(),
-      );
+      _stationRows.add(_StationInputRow());
     });
+    if (!initialAdd) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+        if (requestFocus && _stationRows.isNotEmpty && _stationRows.last.nameFocusNode.canRequestFocus) {
+          FocusScope.of(context).requestFocus(_stationRows.last.nameFocusNode);
+        }
+      });
+    }
   }
 
-  void _removeStation(int index) {
-    if (_stations.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Должна остаться хотя бы одна станция.')),
-      );
+  void _removeStationRow(int index) {
+    // Логика удаления строки станции (без изменений)
+    if (_stationRows.length <= _minStationsForClosedTraverse) {
+      _showErrorSnackBar('Необходимо минимум $_minStationsForClosedTraverse станции для расчета.');
       return;
     }
     setState(() {
-      final stationId = _stations[index].id;
-      _controllers[stationId]?.forEach((_, controller) => controller.dispose());
-      _controllers.remove(stationId);
-      _temporaryInputValues.remove(stationId);
-      _inlineFieldErrors.remove(stationId);
-      _stations.removeAt(index);
+      _stationRows[index].dispose();
+      _stationRows.removeAt(index);
     });
   }
 
-  // --- УПРОЩЕННЫЙ Валидатор для Минут ---
-  String? _validateMinutesInput(String? value, {required String stationId}) {
-    final stationControllers = _controllers[stationId];
-    if (stationControllers == null) return null;
-
-    bool otherAnglePartsExist = stationControllers['angle_deg']!.text.isNotEmpty ||
-        stationControllers['angle_sec']!.text.isNotEmpty;
-
+  // Валидатор для начальных числовых полей
+  String? _validateInitialNumberInput(String? value, String fieldName, {bool allowZero = false, bool allowNegative = false}) {
     if (value == null || value.isEmpty) {
-      return otherAnglePartsExist ? 'Нужно' : null;
+      return '$fieldName: введите значение';
     }
-
-    final min = int.tryParse(value);
-    if (min == null) return 'Число';
-    if (min < 0 || min >= 60) return '0-59';
+    final number = double.tryParse(value.replaceAll(',', '.'));
+    if (number == null) {
+      return '$fieldName: некорректное число';
+    }
+    if (!allowZero && number == 0 && fieldName.toLowerCase().contains("азимут")) {
+      // 0 для азимута валидно
+    } else if (!allowZero && number == 0) {
+      return '$fieldName: не может быть 0';
+    }
+    if (!allowNegative && number < 0) {
+      return '$fieldName: не может быть < 0';
+    }
+    if (fieldName.toLowerCase().contains("азимут") && (number < 0 || number >= 360)) {
+      return '$fieldName: от 0 до 359.99...';
+    }
     return null;
   }
 
-  // --- УПРОЩЕННЫЙ Валидатор для Секунд ---
-  String? _validateSecondsInput(String? value, {required String stationId}) {
-    final stationControllers = _controllers[stationId];
-    if (stationControllers == null) return null;
-
-    bool otherAnglePartsExist = stationControllers['angle_deg']!.text.isNotEmpty ||
-        stationControllers['angle_min']!.text.isNotEmpty;
-
+  // Валидатор для полей станций (углы, расстояния)
+  String? _validateStationNumberField(String? value, String fieldName) {
+    // ... (без изменений, как в предыдущей версии theodolite_form.dart)
     if (value == null || value.isEmpty) {
-      return otherAnglePartsExist ? 'Нужно' : null;
+      return '$fieldName: введите значение';
     }
-
-    final sec = double.tryParse(value);
-    if (sec == null) return 'Число';
-    if (sec < 0.0 || sec >= 60.0) return '0-59.99';
+    final number = double.tryParse(value.replaceAll(',', '.'));
+    if (number == null) {
+      return '$fieldName: некорректное число';
+    }
+    if (fieldName.toLowerCase().contains("расстоян") && number <= 0) {
+      return '$fieldName: должно быть > 0';
+    }
+    if (fieldName.toLowerCase().contains("угол") && (number < 0 || number >= 360)) {
+      return '$fieldName: от 0 до 359.99...';
+    }
     return null;
   }
 
-  void _submitForm() {
-    if (!_formSubmittedOnce) {
-      setState(() {
-        _formSubmittedOnce = true;
-      });
+
+  void _handleSubmit() {
+    FocusScope.of(context).unfocus(); // Скрыть клавиатуру
+
+    // 1. Валидация формы начальных данных
+    if (!(_initialDataFormKey.currentState?.validate() ?? false)) {
+      _showErrorSnackBar('Пожалуйста, исправьте ошибки в начальных данных.');
+      // Прокрутка к форме начальных данных, если она не видна
+      // (потребует GlobalKey для виджета _buildInitialDataForm и Scrollable.ensureVisible)
+      return;
     }
 
-    final bool isFormGloballyValid = _formKey.currentState!.validate();
-
-    bool hasInlineErrorsAfterValidation = false;
-    _inlineFieldErrors.forEach((_, errors) {
-      if (errors['minError'] != null || errors['secError'] != null) {
-        hasInlineErrorsAfterValidation = true;
-      }
-    });
-
-    bool conversionErrorEncountered = false;
-    if (isFormGloballyValid && !hasInlineErrorsAfterValidation) {
-      for (int i = 0; i < _stations.length; i++) {
-        final stationId = _stations[i].id;
-        final stationControllers = _controllers[stationId];
-        if (stationControllers != null) {
-          _stations[i].stationName = stationControllers['name']!.text;
-
-          final degStr = stationControllers['angle_deg']!.text;
-          final minStr = stationControllers['angle_min']!.text;
-          final secStr = stationControllers['angle_sec']!.text;
-          final distStr = stationControllers['distance']!.text;
-
-          if (distStr.isEmpty || double.tryParse(distStr) == null || double.tryParse(distStr)! <=0) {
-            _stations[i].distance = null;
-          } else {
-            _stations[i].distance = double.tryParse(distStr);
-          }
-
-          if (degStr.isEmpty && minStr.isEmpty && secStr.isEmpty) {
-            _stations[i].horizontalAngle = null;
-          } else {
-            int degrees = int.tryParse(degStr.isNotEmpty ? degStr : "0") ?? 0;
-            int minutes = int.tryParse(minStr.isNotEmpty ? minStr : "0") ?? 0;
-            double seconds = double.tryParse(secStr.isNotEmpty ? secStr : "0.0") ?? 0.0;
-
-            if (minutes < 0 || minutes >= 60 || seconds < 0.0 || seconds >= 60.0) {
-              _stations[i].horizontalAngle = null;
-              conversionErrorEncountered = true;
-            } else {
-              _stations[i].horizontalAngle = AngleDMS(degrees: degrees, minutes: minutes, seconds: seconds).toDecimalDegrees();
-            }
-          }
-        }
-      }
+    // 2. Валидация формы станций
+    if (!(_stationsFormKey.currentState?.validate() ?? false)) {
+      _showErrorSnackBar('Пожалуйста, исправьте ошибки в данных станций.');
+      return;
     }
 
-    if (isFormGloballyValid && !hasInlineErrorsAfterValidation && !conversionErrorEncountered) {
-      _temporaryInputValues.clear();
-      _inlineFieldErrors.forEach((_, errors) => errors.clear());
-      setState(() {
-        _formSubmittedOnce = false;
-      });
-      widget.onSubmit(List.from(_stations));
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Пожалуйста, исправьте ошибки в полях ввода.')),
-        );
+    // 3. Сбор начальных данных
+    final double initialX = double.parse(_initialXController.text.replaceAll(',', '.'));
+    final double initialY = double.parse(_initialYController.text.replaceAll(',', '.'));
+    final double initialAzimuth = double.parse(_initialAzimuthController.text.replaceAll(',', '.'));
+    final String calculationName = _calculationNameController.text.trim();
+
+    // 4. Сбор данных станций
+    List<TheodoliteStation> stations = [];
+    for (int i = 0; i < _stationRows.length; i++) {
+      final row = _stationRows[i];
+      // ... (логика сбора данных для одной станции, как раньше)
+      final String stationNameText = row.nameController.text.trim();
+      final double? angle = double.tryParse(row.angleController.text.replaceAll(',', '.'));
+      final double? distanceValue = double.tryParse(row.distanceController.text.replaceAll(',', '.'));
+
+      if (angle == null || distanceValue == null) { // Двойная проверка
+        _showErrorSnackBar('Ошибка данных в строке станции ${i+1}.');
+        return;
       }
+      stations.add(TheodoliteStation(
+        id: row.id,
+        stationName: stationNameText,
+        horizontalAngle: angle,
+        distance: distanceValue,
+        coordinateX: null, // X, Y здесь не нужны, они есть в initialX, initialY
+        coordinateY: null,
+      ));
     }
+
+    if (stations.length < _minStationsForClosedTraverse) {
+      _showErrorSnackBar('Необходимо минимум $_minStationsForClosedTraverse станции для расчета.');
+      return;
+    }
+
+    // 5. Создание и передача FullTraverseInput
+    final fullInput = FullTraverseInput(
+      calculationName: calculationName.isNotEmpty ? calculationName : "Расчет от ${DateTime.now().toIso8601String()}",
+      initialX: initialX,
+      initialY: initialY,
+      initialAzimuth: initialAzimuth,
+      stations: stations,
+    );
+    widget.onSubmit(fullInput);
   }
 
-  Widget _buildStationInput(int index) {
-    final station = _stations[index];
-    final stationId = station.id;
-
-    if (!_controllers.containsKey(stationId)) {
-      _initializeControllersForStation(
-        stationId,
-        name: station.stationName,
-        angleDMSFromModel: AngleDMS.fromDecimalDegrees(station.horizontalAngle),
-        distanceFromModel: station.distance?.toString(),
-      );
-    }
-    final stationSpecificControllers = _controllers[stationId]!;
-    final currentFieldErrors = _inlineFieldErrors.putIfAbsent(stationId, () => {});
-
-    final generalAutovalidateMode = _formSubmittedOnce
-        ? AutovalidateMode.onUserInteraction
-        : AutovalidateMode.disabled;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: stationSpecificControllers['name'],
-                    decoration: InputDecoration(
-                      labelText: 'Станция ${index + 1}',
-                      isDense: true,
-                    ),
-                    style: Theme.of(context).textTheme.titleMedium,
-                    autovalidateMode: generalAutovalidateMode,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Название станции?';
-                      }
-                      return null;
-                    },
-                  ),
-                ),
-                if (_stations.length > 1)
-                  IconButton(
-                    icon: Icon(Icons.remove_circle_outline, color: Theme.of(context).colorScheme.error),
-                    onPressed: () => _removeStation(index),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text("Горизонтальный угол:", style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 6),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: stationSpecificControllers['angle_deg'],
-                    decoration: const InputDecoration(labelText: 'Град.°', hintText: "ГГ"),
-                    keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: false),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^-?\d*')), LengthLimitingTextInputFormatter(4)],
-                    textAlign: TextAlign.center,
-                    autovalidateMode: generalAutovalidateMode,
-                    validator: (value) {
-                      bool otherAnglePartsExist = stationSpecificControllers['angle_min']!.text.isNotEmpty ||
-                          stationSpecificControllers['angle_sec']!.text.isNotEmpty;
-                      if (value == null || value.isEmpty) {
-                        return otherAnglePartsExist ? 'Нужно' : null;
-                      }
-                      if (int.tryParse(value) == null) return 'Число';
-                      return null;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: stationSpecificControllers['angle_min'],
-                    decoration: InputDecoration(
-                      labelText: "Мин.'",
-                      hintText: "ММ",
-                      errorText: currentFieldErrors['minError'],
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(signed: false, decimal: false),
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(2)],
-                    textAlign: TextAlign.center,
-                    autovalidateMode: AutovalidateMode.disabled,
-                    onChanged: (value) {
-                      setState(() {
-                        // Убрали isIntermediate
-                        currentFieldErrors['minError'] = _validateMinutesInput(value, stationId: stationId);
-                      });
-                      _temporaryInputValues.putIfAbsent(stationId, () => {})['angle_min'] = value;
-                      if (_formSubmittedOnce && currentFieldErrors['minError'] == null) {
-                        _formKey.currentState?.validate();
-                      }
-                    },
-                    validator: (value) {
-                      // Убрали isIntermediate
-                      final error = _validateMinutesInput(value, stationId: stationId);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && currentFieldErrors['minError'] != error) {
-                          setState(() {
-                            currentFieldErrors['minError'] = error;
-                          });
-                        }
-                      });
-                      return error;
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: stationSpecificControllers['angle_sec'],
-                    decoration: InputDecoration(
-                      labelText: 'Сек."',
-                      hintText: "СС.сс",
-                      errorText: currentFieldErrors['secError'],
-                    ),
-                    keyboardType: const TextInputType.numberWithOptions(signed: false, decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')), LengthLimitingTextInputFormatter(5)],
-                    textAlign: TextAlign.center,
-                    autovalidateMode: AutovalidateMode.disabled,
-                    onChanged: (value) {
-                      setState(() {
-                        // Убрали isIntermediate
-                        currentFieldErrors['secError'] = _validateSecondsInput(value, stationId: stationId);
-                      });
-                      _temporaryInputValues.putIfAbsent(stationId, () => {})['angle_sec'] = value;
-                      if (_formSubmittedOnce && currentFieldErrors['secError'] == null) {
-                        _formKey.currentState?.validate();
-                      }
-                    },
-                    validator: (value) {
-                      // Убрали isIntermediate
-                      final error = _validateSecondsInput(value, stationId: stationId);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted && currentFieldErrors['secError'] != error) {
-                          setState(() {
-                            currentFieldErrors['secError'] = error;
-                          });
-                        }
-                      });
-                      return error;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: stationSpecificControllers['distance'],
-              decoration: const InputDecoration(labelText: 'Расстояние (метры)', hintText: 'например, 150.75'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: false),
-              autovalidateMode: generalAutovalidateMode,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Введите расстояние';
-                }
-                final distance = double.tryParse(value);
-                if (distance == null) return 'Корректное число';
-                if (distance <= 0) return 'Больше нуля';
-                return null;
-              },
-            ),
-          ],
-        ),
+  void _showErrorSnackBar(String message) {
+    // ... (без изменений)
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(10),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
+
+  void _fieldSubmitted(FocusNode currentFocus, FocusNode? nextFocus) {
+    // ... (без изменений)
+    currentFocus.unfocus();
+    if (nextFocus != null && nextFocus.canRequestFocus) {
+      FocusScope.of(context).requestFocus(nextFocus);
+    }
+  }
+
+  void _onDistanceSubmitted(int index) {
+    // ... (без изменений)
+    _stationRows[index].distanceFocusNode.unfocus();
+    if (index == _stationRows.length - 1) {
+      if (_stationsFormKey.currentState?.validate() ?? false) { // Проверяем только форму станций
+        _addStationRowInternal(requestFocus: true);
+      }
+    } else {
+      if (_stationRows[index + 1].nameFocusNode.canRequestFocus) {
+        FocusScope.of(context).requestFocus(_stationRows[index + 1].nameFocusNode);
+      }
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.only(top: 8.0, bottom: 130.0),
-                itemCount: _stations.length,
-                itemBuilder: (context, index) {
-                  return KeepAliveWrapper(
-                    key: ValueKey(_stations[index].id),
-                    child: _buildStationInput(index),
-                  );
-                },
+    // Весь контент формы теперь внутри одного ScrollView, чтобы все было доступно
+    return SingleChildScrollView(
+      controller: _scrollController, // Используем общий ScrollController
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildInitialDataSection(), // Секция для начальных данных
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 10),
+          Text(
+            "Данные станций:",
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          _buildStationsSection(),     // Секция для списка станций
+          const SizedBox(height: 20),
+          Center( // Кнопка Рассчитать теперь внизу общего скролла
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.calculate_outlined),
+              label: const Text('Рассчитать ход'),
+              onPressed: _handleSubmit,
+              style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  textStyle: const TextStyle(fontSize: 16)
               ),
             ),
-            _buildBottomButtons(),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16), // Отступ снизу
+        ],
       ),
     );
   }
 
-  Widget _buildBottomButtons() {
-    return Container(
-      padding: EdgeInsets.only(
-        left: 16.0,
-        right: 16.0,
-        top: 10.0,
-        bottom: MediaQuery.of(context).padding.bottom + 10.0,
-      ),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            spreadRadius: 0,
-            blurRadius: 8,
-            offset: const Offset(0, -2),
+  Widget _buildInitialDataSection() {
+    return Form(
+      key: _initialDataFormKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Начальные данные хода:",
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _calculationNameController,
+            decoration: const InputDecoration(
+              labelText: 'Имя/номер расчета',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            ),
+            textCapitalization: TextCapitalization.sentences,
+            validator: (value) { /* Можно сделать необязательным */ return null; },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _initialXController,
+                  decoration: const InputDecoration(labelText: 'Начальный X', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12)),
+                  keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,-]+'))],
+                  validator: (v) => _validateInitialNumberInput(v, "Нач. X", allowZero: true, allowNegative: true),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _initialYController,
+                  decoration: const InputDecoration(labelText: 'Начальный Y', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12)),
+                  keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,-]+'))],
+                  validator: (v) => _validateInitialNumberInput(v, "Нач. Y", allowZero: true, allowNegative: true),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _initialAzimuthController,
+            decoration: const InputDecoration(
+              labelText: 'Начальный дирекционный угол (°)',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]+'))],
+            validator: (v) => _validateInitialNumberInput(v, "Нач. азимут", allowZero: true),
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _buildStationsSection() {
+    // ListView.builder не очень хорошо работает внутри SingleChildScrollView без ограничений высоты.
+    // Если станций может быть МНОГО, то лучше использовать Column с .map().
+    // Для умеренного количества ListView.builder с shrinkWrap=true и physics=NeverScrollableScrollPhysics может сработать.
+    // Здесь оставляем Column с .map() для простоты и надежности внутри SingleChildScrollView.
+    return Form(
+      key: _stationsFormKey,
+      child: Column( // Используем Column вместо ListView.builder
         children: [
-          ElevatedButton.icon(
-            icon: const Icon(Icons.add_circle_outline),
-            label: const Text('Добавить станцию'),
-            onPressed: _addStation,
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 48),
+          _buildHeaderRow(), // Заголовок для станций
+          ..._stationRows.asMap().entries.map((entry) { // Используем asMap().entries для получения индекса
+            int index = entry.key;
+            _StationInputRow row = entry.value;
+            return _buildStationInputRow(row, index);
+          }).toList(),
+          const SizedBox(height: 8),
+          Align( // Кнопка "Добавить станцию"
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('Добавить станцию'),
+                onPressed: () => _addStationRowInternal(requestFocus: true),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                )
             ),
           ),
-          const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _submitForm,
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size(double.infinity, 48),
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+        ],
+      ),
+    );
+  }
+
+  // _buildHeaderRow и _buildStationInputRow остаются такими же, как в предыдущей версии theodolite_form.dart
+  Widget _buildHeaderRow() {
+    // ... (код из предыдущей версии)
+    return Padding(
+      padding: const EdgeInsets.only(left: 45.0, right: 50.0, top: 0.0, bottom: 4.0),
+      child: Row(
+        children: const [
+          Expanded(flex: 3, child: Text('Имя станции', style: TextStyle(fontWeight: FontWeight.bold))),
+          SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('Гор. угол (°)', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
+          SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('Расст. (м)', style: TextStyle(fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStationInputRow(_StationInputRow row, int index) {
+    // ... (код из предыдущей версии, только валидатор изменен на _validateStationNumberField)
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.only(top: 14.0),
+            width: 35,
+            alignment: Alignment.topCenter,
+            child: Text('${index + 1}.', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          ),
+          Expanded(
+            flex: 3,
+            child: TextFormField(
+              controller: row.nameController,
+              focusNode: row.nameFocusNode,
+              decoration: const InputDecoration(labelText: 'Имя', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.next,
+              onFieldSubmitted: (_) => _fieldSubmitted(row.nameFocusNode, row.angleFocusNode),
             ),
-            child: const Text('Рассчитать'),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: TextFormField(
+              controller: row.angleController,
+              focusNode: row.angleFocusNode,
+              decoration: const InputDecoration(labelText: 'Угол', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]+'))],
+              validator: (value) => _validateStationNumberField(value, 'Угол'), // Изменен валидатор
+              textInputAction: TextInputAction.next,
+              onFieldSubmitted: (_) => _fieldSubmitted(row.angleFocusNode, row.distanceFocusNode),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: TextFormField(
+              controller: row.distanceController,
+              focusNode: row.distanceFocusNode,
+              decoration: const InputDecoration(labelText: 'Расст.', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]+'))],
+              validator: (value) => _validateStationNumberField(value, 'Расстоян.'), // Изменен валидатор
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _onDistanceSubmitted(index),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline),
+            color: Colors.redAccent.withOpacity(0.8),
+            onPressed: () => _removeStationRow(index),
+            tooltip: 'Удалить станцию',
+            padding: const EdgeInsets.only(top: 4),
+            constraints: const BoxConstraints(),
+            splashRadius: 20,
           ),
         ],
       ),

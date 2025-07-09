@@ -1,4 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Разрешения могут быть не нужны для getApplicationDocumentsDirectory,
+         но если вы планируете писать в общие папки или permission_handler их требует: -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <!-- Для Android < 10 (API < 29) для записи. Начиная с Android 10, поведение меняется. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <!-- Для Android 10 (API 29) и выше, если используете requestLegacyExternalStorage (не рекомендуется для новых приложений) -->
+    <!-- <application android:requestLegacyExternalStorage="true" ... > -->
+
+
+
     <application
         android:label="TM"
         android:name="${applicationName}"

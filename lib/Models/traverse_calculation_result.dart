@@ -1,83 +1,121 @@
-import 'package:traversemastery/models/theodolite_station.dart'; // Путь к вашей модели станции
-
-// Единицы измерения углов (опционально, но полезно для ясности)
-enum AngleUnit { degrees, radians }
+import 'package:flutter/foundation.dart';
+import 'package:traversemastery/models/theodolite_station.dart'; // Убедитесь, что путь правильный
 
 class TraverseCalculationResult {
-  final List<TheodoliteStation> inputStations; // Входные данные
-  final DateTime calculationDate;
+  final String calculationId; // Уникальный ID для этого расчета, можно использовать UUID
+  final DateTime calculationDate; // Дата и время выполнения расчета
+  final String? calculationName; // Опциональное имя расчета (например, из имени файла)
 
-  // Суммы и невязки
-  final double sumMeasuredAngles;     // Сумма изм. (внутренних) углов
-  final double theoreticalSumAngles;  // Теоретическая сумма углов (n-2)*180
-  final double angularMisclosure;     // Угловая невязка
+  final List<TheodoliteStation> stations; // Список станций с исходными и/или вычисленными данными
+
+  // Исходные данные для справки (если они не входят в каждую станцию)
+  final double? initialAzimuth; // Исходный дирекционный угол (если использовался)
+  final TheodoliteStation? startPointCoordinates; // Координаты начальной точки (если это не первая станция в списке)
+
+  // Суммы и средние значения
+  final double sumMeasuredAngles;         // Сумма измеренных (или левых по ходу) горизонтальных углов
+  final double sumCorrectedAngles;        // Сумма исправленных горизонтальных углов
+  final double sumTheoreticalAngles;      // Теоретическая сумма углов для данного типа хода
+  final double sumDistances;              // Сумма длин сторон
+
+  // Невязки
+  final double angularMisclosure;         // Угловая невязка (фактическая - теоретическая)
   final double permissibleAngularMisclosure; // Допустимая угловая невязка
-  final bool isAngularMisclosureAcceptable;
+  final bool isAngularOk;                 // Прошла ли угловая невязка проверку допуска
 
-  // Исправленные углы
-  final List<double> correctedAngles; // Исправленные внутренние углы
+  final double sumDeltaX;                 // Сумма приращений dX (алгебраическая)
+  final double sumDeltaY;                 // Сумма приращений dY (алгебраическая)
+  final double linearMisclosureAbsolute;  // Абсолютная линейная невязка (f_abs)
+  final double linearMisclosureRelative;  // Относительная линейная невязка (например, 1/N)
+  final double permissibleLinearMisclosureRelative; // Допустимая относительная линейная невязка
+  final bool isLinearOk;                  // Прошла ли линейная невязка проверку допуска
 
-  // Дирекционные углы (или румбы, если предпочитаете)
-  final List<double> directionAngles; // Дирекционные углы сторон
+  // Возможно, другие поля, специфичные для вашего расчета
+  // final Map<String, dynamic>? additionalData; // Для любых других данных
 
-  // Приращения координат
-  final List<double> deltaX;          // Приращения по X (Север/Юг)
-  final List<double> deltaY;          // Приращения по Y (Восток/Запад)
-
-  // Суммы приращений и невязки по координатам
-  final double sumDeltaX;
-  final double sumDeltaY;
-  final double linearMisclosureX;     // Невязка по X
-  final double linearMisclosureY;     // Невязка по Y
-  final double absoluteLinearMisclosure; // Абсолютная линейная невязка
-  final double relativeLinearMisclosure; // Относительная линейная невязка (1:M)
-  final bool isLinearMisclosureAcceptable;
-
-  // Исправленные приращения
-  final List<double> correctedDeltaX;
-  final List<double> correctedDeltaY;
-
-  // Координаты точек (если задана начальная точка)
-  final List<PointCoordinates> calculatedCoordinates; // Список координат (X, Y)
-
-  // Конструктор
   TraverseCalculationResult({
-    required this.inputStations,
+    required this.calculationId,
     required this.calculationDate,
+    this.calculationName,
+    required this.stations,
+    this.initialAzimuth,
+    this.startPointCoordinates,
     required this.sumMeasuredAngles,
-    required this.theoreticalSumAngles,
+    required this.sumCorrectedAngles,
+    required this.sumTheoreticalAngles,
+    required this.sumDistances,
     required this.angularMisclosure,
     required this.permissibleAngularMisclosure,
-    required this.isAngularMisclosureAcceptable,
-    required this.correctedAngles,
-    required this.directionAngles,
-    required this.deltaX,
-    required this.deltaY,
+    required this.isAngularOk,
     required this.sumDeltaX,
     required this.sumDeltaY,
-    required this.linearMisclosureX,
-    required this.linearMisclosureY,
-    required this.absoluteLinearMisclosure,
-    required this.relativeLinearMisclosure,
-    required this.isLinearMisclosureAcceptable,
-    required this.correctedDeltaX,
-    required this.correctedDeltaY,
-    required this.calculatedCoordinates,
+    required this.linearMisclosureAbsolute,
+    required this.linearMisclosureRelative,
+    required this.permissibleLinearMisclosureRelative,
+    required this.isLinearOk,
+    // this.additionalData,
   });
 
-// Можно добавить factory конструктор для удобства создания из пустого состояния или ошибки
-}
+  // Сериализация в JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'calculationId': calculationId,
+      'calculationDate': calculationDate.toIso8601String(), // Стандартный формат для даты
+      'calculationName': calculationName,
+      'stations': stations.map((s) => s.toJson()).toList(), // Сериализуем каждую станцию
+      'initialAzimuth': initialAzimuth,
+      'startPointCoordinates': startPointCoordinates?.toJson(), // Сериализуем, если не null
+      'sumMeasuredAngles': sumMeasuredAngles,
+      'sumCorrectedAngles': sumCorrectedAngles,
+      'sumTheoreticalAngles': sumTheoreticalAngles,
+      'sumDistances': sumDistances,
+      'angularMisclosure': angularMisclosure,
+      'permissibleAngularMisclosure': permissibleAngularMisclosure,
+      'isAngularOk': isAngularOk,
+      'sumDeltaX': sumDeltaX,
+      'sumDeltaY': sumDeltaY,
+      'linearMisclosureAbsolute': linearMisclosureAbsolute,
+      'linearMisclosureRelative': linearMisclosureRelative,
+      'permissibleLinearMisclosureRelative': permissibleLinearMisclosureRelative,
+      'isLinearOk': isLinearOk,
+      // 'additionalData': additionalData,
+    };
+  }
 
-// Вспомогательный класс для координат
-class PointCoordinates {
-  final String stationName;
-  final double x; // Север (+) / Юг (-)
-  final double y; // Восток (+) / Запад (-)
+  // Десериализация из JSON
+  factory TraverseCalculationResult.fromJson(Map<String, dynamic> json) {
+    return TraverseCalculationResult(
+      calculationId: json['calculationId'] as String,
+      calculationDate: DateTime.parse(json['calculationDate'] as String),
+      calculationName: json['calculationName'] as String?,
+      stations: (json['stations'] as List<dynamic>)
+          .map((sJson) => TheodoliteStation.fromJson(sJson as Map<String, dynamic>))
+          .toList(),
+      initialAzimuth: json['initialAzimuth'] as double?,
+      startPointCoordinates: json['startPointCoordinates'] != null
+          ? TheodoliteStation.fromJson(json['startPointCoordinates'] as Map<String, dynamic>)
+          : null,
+      sumMeasuredAngles: json['sumMeasuredAngles'] as double,
+      sumCorrectedAngles: json['sumCorrectedAngles'] as double,
+      sumTheoreticalAngles: json['sumTheoreticalAngles'] as double,
+      sumDistances: json['sumDistances'] as double,
+      angularMisclosure: json['angularMisclosure'] as double,
+      permissibleAngularMisclosure: json['permissibleAngularMisclosure'] as double,
+      isAngularOk: json['isAngularOk'] as bool,
+      sumDeltaX: json['sumDeltaX'] as double,
+      sumDeltaY: json['sumDeltaY'] as double,
+      linearMisclosureAbsolute: json['linearMisclosureAbsolute'] as double,
+      linearMisclosureRelative: json['linearMisclosureRelative'] as double,
+      permissibleLinearMisclosureRelative: json['permissibleLinearMisclosureRelative'] as double,
+      isLinearOk: json['isLinearOk'] as bool,
+      // additionalData: json['additionalData'] as Map<String, dynamic>?,
+    );
+  }
 
-  PointCoordinates({required this.stationName, required this.x, required this.y});
-
+  // Для удобства отладки
   @override
   String toString() {
-    return 'Точка: $stationName, X: ${x.toStringAsFixed(3)}, Y: ${y.toStringAsFixed(3)}';
+    return 'TraverseCalculationResult(id: $calculationId, name: $calculationName, stations: ${stations.length}, angularOk: $isAngularOk, linearOk: $isLinearOk)';
   }
 }
+

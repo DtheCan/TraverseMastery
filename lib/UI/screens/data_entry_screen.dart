@@ -1,9 +1,11 @@
+// lib/ui/screens/data_entry_screen.dart
 import 'package:flutter/material.dart';
 import 'package:traversemastery/core/services/travers_calculator_service.dart';
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/traverse_calculation_result.dart';
+import 'package:traversemastery/models/full_traverse_input.dart'; // Наша новая модель
 import 'package:traversemastery/ui/screens/calculation_results_screen.dart';
-import 'package:traversemastery/ui/widgets/theodolite_form.dart';
+import 'package:traversemastery/ui/widgets/theodolite_form.dart'; // Наша обновленная форма
 
 class DataEntryScreen extends StatefulWidget {
   const DataEntryScreen({super.key});
@@ -13,102 +15,104 @@ class DataEntryScreen extends StatefulWidget {
 }
 
 class _DataEntryScreenState extends State<DataEntryScreen> {
-  // Убедитесь, что TraverseCalculatorService инициализируется корректно
   final TraverseCalculatorService _calculatorService = TraverseCalculatorService();
   bool _isLoading = false;
 
-  void _onCalculate(List<TheodoliteStation> stations) async {
-    if (!mounted) return; // Проверка mounted в самом начале
+  // Контроллеры и форма начальных данных удалены отсюда
 
-    if (stations.length < 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Для расчета замкнутого хода необходимо минимум 3 станции с данными.')),
-      );
+  void _onCalculate(FullTraverseInput fullInput) async { // Принимает FullTraverseInput
+    FocusScope.of(context).unfocus(); // Скрыть клавиатуру, если вдруг открыта
+
+    // Валидация уже произошла внутри TheodoliteForm
+    // Но можно добавить базовую проверку, если нужно
+    if (fullInput.stations.isEmpty || fullInput.stations.length < 3) {
+      _showErrorSnackBar('Недостаточно данных по станциям для расчета.');
       return;
     }
 
-    for (int i = 0; i < stations.length; i++) {
-      final station = stations[i];
-      final stationIdentifier = station.stationName.isNotEmpty ? station.stationName : '№${i + 1}';
-      if (station.horizontalAngle == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Отсутствует горизонтальный угол для станции $stationIdentifier')),
-        );
-        return;
-      }
-      if (station.distance == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Отсутствует расстояние для стороны от станции $stationIdentifier')),
-        );
-        return;
-      }
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() { _isLoading = true; });
 
     try {
-      final TraverseCalculationResult result = await _calculatorService.calculateClosedTraverse(stations);
+      // Создаем объект TheodoliteStation для начальной точки на основе данных из fullInput
+      final TheodoliteStation initialStationData = TheodoliteStation(
+        // ID для начальной точки может быть сгенерирован заново или взят из первой станции,
+        // но так как stations в fullInput - это только _измеренные_ данные,
+        // лучше сгенерировать новый или использовать фиксированный.
+        // Для примера, возьмем ID первой ИЗМЕРЕННОЙ станции, но это не всегда логично.
+        // Лучше: id: _uuid.v4(), (если _uuid определен здесь или в сервисе)
+        id: fullInput.stations.first.id, // Пример, может потребовать корректировки логики
+        stationName: "Нач. точка (${fullInput.stations.first.stationName})", // Пример именования
+        coordinateX: fullInput.initialX,
+        coordinateY: fullInput.initialY,
+        horizontalAngle: null,
+        distance: null,
+      );
+
+      final TraverseCalculationResult result =
+      await _calculatorService.calculateClosedTraverse(
+        inputStations: fullInput.stations, // Это список ИЗМЕРЕННЫХ станций
+        initialStationData: initialStationData, // Сформированная начальная станция
+        initialDirectionAngleDegrees: fullInput.initialAzimuth,
+        calculationName: fullInput.calculationName,
+      );
 
       if (!mounted) return;
-
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => CalculationResultScreen(result: result),
+          builder: (context) => CalculationResultScreen(
+            result: result,
+            suggestedFileName: result.calculationName,
+          ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      String errorMessage = e.toString();
-      if (e is ArgumentError) { // Более специфичная обработка для ArgumentError
-        errorMessage = e.message ?? "Неизвестная ошибка аргумента";
-      } else {
-        errorMessage = errorMessage.replaceFirst("Exception: ", ""); // Убираем общий префикс
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка расчета: $errorMessage'),
-          duration: const Duration(seconds: 5),
-          backgroundColor: Theme.of(context).colorScheme.error,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showErrorSnackBar('Ошибка расчета: ${e.toString().replaceFirst("Exception: ", "")}');
     } finally {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() { _isLoading = false; });
       }
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(10),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ввод данных замкнутого теодолитного хода'),
+        title: const Text('Ввод данных теодолитного хода'),
         centerTitle: true,
       ),
-      body: _isLoading
-          ? const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
-            Text(
-              "Выполняется расчет...",
-              style: TextStyle(fontSize: 16),
-            ),
-          ],
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 20),
+              Text("Выполняется расчет..."),
+            ],
+          ),
+        )
+            : TheodoliteForm( // Просто отображаем TheodoliteForm
+          onSubmit: (FullTraverseInput submittedData) {
+            _onCalculate(submittedData);
+          },
         ),
-      )
-      // Убедитесь, что класс TheodoliteForm импортирован и его конструктор соответствует
-          : TheodoliteForm(
-        onSubmit: _onCalculate,
       ),
     );
   }

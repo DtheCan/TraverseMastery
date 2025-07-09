@@ -12,7 +12,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Расчет Теодолитного Хода', // Название приложения
+      title: 'TM', // Название приложения
       // Убедитесь, что AppTheme.darkTheme (или AppTheme.lightTheme) существует и корректно определен
       theme: AppTheme.lightTheme, // Для примера используем светлую тему по умолчанию
       darkTheme: AppTheme.darkTheme,
