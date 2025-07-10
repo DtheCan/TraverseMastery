@@ -120,7 +120,7 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.calculate_outlined), // Или Icons.storage_rounded
+                leading: const Icon(Icons.receipt_long), // Или Icons.storage_rounded
                 title: const Text('Хранилище'),
                 onTap: () {
                   Navigator.pop(context); // Сначала закрываем Drawer
