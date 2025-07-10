@@ -130,14 +130,6 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
                   );
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: const Text('История расчетов'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showErrorSnackBar('Пункт "История расчетов" еще не реализован.');
-                },
-              ),
               const Spacer(),
               SafeArea(
                 top: false,
