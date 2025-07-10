@@ -1,11 +1,11 @@
-// lib/ui/screens/data_entry_screen.dart
 import 'package:flutter/material.dart';
 import 'package:traversemastery/core/services/travers_calculator_service.dart';
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/traverse_calculation_result.dart';
-import 'package:traversemastery/models/full_traverse_input.dart'; // Наша новая модель
+import 'package:traversemastery/models/full_traverse_input.dart';
 import 'package:traversemastery/ui/screens/calculation_results_screen.dart';
-import 'package:traversemastery/ui/widgets/theodolite_form.dart'; // Наша обновленная форма
+import 'package:traversemastery/ui/widgets/theodolite_form.dart';
+import 'package:traversemastery/ui/screens/storage_viewer.dart';
 
 class DataEntryScreen extends StatefulWidget {
   const DataEntryScreen({super.key});
@@ -97,70 +97,80 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
         centerTitle: true,
       ),
       drawer: Drawer(
-        child: Column(
-          children: <Widget>[
-            DrawerHeader(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-              ),
-              child: Text(
-                'Меню',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  fontSize: 24,
+        child: SafeArea(
+          child: Column(
+            children: <Widget>[
+              DrawerHeader(
+                padding: EdgeInsets.zero,
+                margin: EdgeInsets.zero,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                ),
+                child: Container(
+                  width: double.infinity,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(
+                    'Меню',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      fontSize: 24,
+                    ),
+                  ),
                 ),
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.calculate_outlined),
-              title: const Text('Новый расчет'),
-              onTap: () {
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: const Text('История расчетов'),
-              onTap: () {
-                Navigator.pop(context);
-                _showErrorSnackBar('Пункт "История расчетов" еще не реализован.');
-              },
-            ),
-            // Spacer будет занимать все пространство МЕЖДУ верхними элементами
-            // и нижней группой, обернутой в SafeArea
-            const Spacer(),
-            // Оборачиваем нижнюю группу в SafeArea, чтобы учесть системные отступы снизу
-            SafeArea(
-              top: false, // Нам не нужен отступ сверху для этой части
-              bottom: true, // Включаем отступ снизу
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // Чтобы Column занимал минимально необходимое место
-                children: [
-                  const Divider(),
-                  ListTile(
-                    leading: const Icon(Icons.settings_outlined),
-                    title: const Text('Настройки'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.info_outline),
-                    title: const Text('О приложении'),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
-                    },
-                  ),
-                  // const SizedBox(height: 8.0), // Этот отступ теперь будет внутри SafeArea
-                ],
+              ListTile(
+                leading: const Icon(Icons.calculate_outlined), // Или Icons.storage_rounded
+                title: const Text('Хранилище'),
+                onTap: () {
+                  Navigator.pop(context); // Сначала закрываем Drawer
+                  Navigator.push( // Затем открываем новый экран
+                    context,
+                    MaterialPageRoute(builder: (context) => const StorageViewerScreen()),
+                  );
+                },
               ),
-            ),
-          ],
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('История расчетов'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showErrorSnackBar('Пункт "История расчетов" еще не реализован.');
+                },
+              ),
+              const Spacer(),
+              SafeArea(
+                top: false,
+                bottom: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(Icons.settings_outlined),
+                      title: const Text('Настройки'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: const Text('О приложении'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       body: SafeArea(
+        // ... остальная часть body ...
         child: _isLoading
             ? const Center(
           child: Column(
