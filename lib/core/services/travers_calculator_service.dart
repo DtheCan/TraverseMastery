@@ -1,9 +1,7 @@
 import 'dart:math';
 import 'package:uuid/uuid.dart'; // Для генерации уникальных ID
-// Убедитесь, что пути импорта ВЕРНЫ для вашей структуры проекта:
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/traverse_calculation_result.dart';
-// import 'package:traversemastery/models/point_coordinates.dart'; // Заменено на поля в TheodoliteStation
 
 const _uuid = Uuid();
 
