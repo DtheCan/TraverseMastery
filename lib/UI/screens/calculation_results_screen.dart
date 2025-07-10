@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart'; // Для ShareResultStatus
 // Модели
 import 'package:traversemastery/models/traverse_calculation_result.dart';
 import 'package:traversemastery/models/theodolite_station.dart';
 // Сервисы
-import 'package:traversemastery/core/services/forms_saver.dart'; // <--- Импорт сервиса сохранения
-import 'package:traversemastery/core/services/share_service.dart';   // <--- Импорт сервиса "Поделиться"
+import 'package:traversemastery/core/services/forms_saver.dart';
+import 'package:traversemastery/core/services/share_service.dart'; // Импорт обновленного ShareService
 
 // Цвета (можете вынести в app_theme.dart и импортировать оттуда)
 const _primaryBlack = Color(0xFF121212);
@@ -19,7 +20,7 @@ const _successColor = Colors.greenAccent;
 
 class CalculationResultScreen extends StatefulWidget {
   final TraverseCalculationResult result;
-  final String? suggestedFileName; // Это может быть полезно для FormSaverService
+  final String? suggestedFileName;
 
   const CalculationResultScreen({
     super.key,
@@ -33,10 +34,10 @@ class CalculationResultScreen extends StatefulWidget {
 
 class _CalculationResultScreenState extends State<CalculationResultScreen> {
   bool _isSaving = false;
-  // String? _lastSavedFilePath; // Для передачи в ShareService, если нужно
+  String? _lastSavedFilePath; // Для передачи в ShareService
 
   final FormSaverService _formSaverService = FormSaverService();
-  final ShareService _shareService = ShareService();
+  final ShareService _shareService = ShareService(); // Экземпляр ShareService
 
   Future<void> _handleSaveResult() async {
     if (_isSaving) return;
@@ -49,27 +50,28 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
 
     if (mounted) {
       if (filePath != null) {
-        // Получаем только имя файла из полного пути
+        setState(() {
+          _lastSavedFilePath = filePath; // Сохраняем путь к файлу
+        });
         String fileName = filePath.split('/').last;
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Column(
-              mainAxisSize: MainAxisSize.min, // Чтобы Column занимал минимально необходимую высоту
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Файл: $fileName', // Первая строка
+                  'Файл: $fileName',
                   style: const TextStyle(fontWeight: FontWeight.bold, color: _textOnPrimarySurface),
                 ),
                 const Text(
-                  'сохранен в хранилище', // Вторая строка
-                  style: TextStyle(fontSize: 13, color: _textOnPrimarySurface), // Можно немного изменить стиль для второй строки
+                  'сохранен в хранилище',
+                  style: TextStyle(fontSize: 13, color: _textOnPrimarySurface),
                 ),
               ],
             ),
-            backgroundColor: Colors.green, // Используйте ваш _successColor, если он определен
-            duration: const Duration(seconds: 4), // Длительность можно настроить
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
           ),
@@ -77,8 +79,8 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: _errorColor, // Используйте ваш _errorColor
-            content: Text('Ошибка сохранения файла.', style: TextStyle(color: _textOnPrimarySurface)),
+            backgroundColor: _errorColor,
+            content: const Text('Ошибка сохранения файла.', style: TextStyle(color: _textOnPrimarySurface)),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
           ),
@@ -89,36 +91,41 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
   }
 
   Future<void> _handleShareResult() async {
-    // Если вы хотите дать возможность поделиться последним сохраненным файлом:
-    // String? filePathToShare = _lastSavedFilePath;
-    // if (filePathToShare == null) {
-    //   // Если файл не был сохранен, или мы хотим всегда делиться текстовым представлением
-    //   // или дать выбор, можно сначала сохранить временный файл и поделиться им.
-    //   // Пока что просто делимся текстовым представлением или последним сохраненным.
-    // }
-    // Для простоты, сначала сохраним (если еще не сохранено), а потом поделимся файлом
-    // Либо можно просто делиться текстовым представлением из ShareService
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Подготовка данных для отправки...')),
+    );
 
-    // Вариант 1: Поделиться текстовым представлением
-    // await _shareService.shareCalculationResult(context, widget.result);
+    final status = await _shareService.shareSingleCalculationResult(
+      result: widget.result,
+      filePathToShare: _lastSavedFilePath,
+    );
 
-    // Вариант 2: Сначала сохранить, потом поделиться файлом (если еще не сохранено)
-    // Либо использовать _lastSavedFilePath, если он есть
-    // Для этого примера, давайте предположим, что мы хотим иметь возможность
-    // поделиться файлом, если он был сохранен.
-    // Для простоты, здесь мы можем вызвать сохранение, если это еще не сделано,
-    // или использовать уже сохраненный.
-    // Пока что вызовем shareCalculationResult без filePathToShare,
-    // он сам решит, как делиться.
-    // Чтобы поделиться именно файлом, сначала его нужно сохранить и получить путь.
-    // Можно сначала сохранить, а потом поделиться, либо делиться только текстом.
+    if (!mounted) return;
 
-    // Пока что просто вызовем, ShareService сам решит как (текстом или файлом, если передан путь)
-    await _shareService.shareCalculationResult(context, widget.result /*, filePathToShare: _lastSavedFilePath */);
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+
+    if (status != null) {
+      String message;
+      switch (status) {
+        case ShareResultStatus.success:
+          message = 'Успешно отправлено!';
+          break;
+        case ShareResultStatus.dismissed:
+          message = 'Отправка отменена.';
+          break;
+        case ShareResultStatus.unavailable:
+          message = 'Не удалось отправить: ресурс недоступен.';
+          break;
+        default:
+          message = 'Не удалось отправить. Попробуйте еще раз.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось определить статус отправки.')));
+    }
   }
 
-
-  // --- Вспомогательные функции форматирования и виджеты отображения (остаются здесь) ---
   String _formatDouble(double? value, {int fractionDigits = 2, String fallback = '—'}) {
     if (value == null) return fallback;
     return value.toStringAsFixed(fractionDigits);
@@ -148,8 +155,6 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
         centerTitle: true,
         backgroundColor: _cardBlack,
         elevation: 0,
-        // Кнопка "назад" будет добавлена автоматически, если экран был открыт через Navigator.push
-        // iconTheme: const IconThemeData(color: _accentBlue), // Для кастомизации цвета иконки "назад"
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -168,13 +173,12 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
             ),
             const SizedBox(height: 8),
             _buildStationsDataTable(result.stations),
-            const SizedBox(height: 30), // Отступ перед кнопками
+            const SizedBox(height: 30),
           ],
         ),
       ),
-      // Используем bottomNavigationBar для трех кнопок внизу
       bottomNavigationBar: Padding(
-        padding: const EdgeInsets.all(12.0).copyWith(bottom: MediaQuery.of(context).padding.bottom + 12), // Отступ снизу с учетом safe area
+        padding: const EdgeInsets.all(12.0).copyWith(bottom: MediaQuery.of(context).padding.bottom + 12),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
@@ -187,7 +191,7 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                 ),
-                onPressed: _handleShareResult,
+                onPressed: _handleShareResult, // Вызывает обновленный метод
               ),
             ),
             const SizedBox(width: 12),
@@ -198,7 +202,7 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
                     : const Icon(Icons.save_alt_outlined, color: _textOnPrimarySurface),
                 label: Text(_isSaving ? 'Сохр...' : 'Сохранить', style: const TextStyle(color: _textOnPrimarySurface)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green, // Другой цвет для кнопки Сохранить
+                  backgroundColor: Colors.green,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
                 ),
@@ -211,8 +215,6 @@ class _CalculationResultScreenState extends State<CalculationResultScreen> {
     );
   }
 
-  // ... (виджеты _buildResultHeader, _buildAngularMisclosureCard, _buildLinearMisclosureCard, _buildInfoRow, _buildStationsDataTable остаются здесь без изменений) ...
-  // Копипаст этих виджетов из вашего предыдущего кода calculation_results_screen.dart
   Widget _buildResultHeader(TraverseCalculationResult result) {
     return Card(
       color: _cardBlack, elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
