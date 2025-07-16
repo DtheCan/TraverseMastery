@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/full_traverse_input.dart';
 import 'package:uuid/uuid.dart';
+import 'package:traversemastery/core/services/forms_saver.dart';
 
 const _uuid = Uuid();
 
@@ -21,11 +22,6 @@ class _StationInputRow {
   final FocusNode angleMinutesFocusNode;
   final FocusNode angleSecondsFocusNode;
   final FocusNode distanceFocusNode;
-
-  // Для управления ошибками "пустого поля" отдельно, если понадобится сложная логика
-  // String? nameErrorText;
-  // String? degreesErrorText;
-  // ... и так далее для каждого поля
 
   _StationInputRow()
       : id = _uuid.v4(),
@@ -335,7 +331,6 @@ class TheodoliteFormStateImplementation extends State<TheodoliteForm> {
         children: [
           _buildInitialDataSection(),
           const SizedBox(height: 16),
-          const Divider(),
           const SizedBox(height: 10),
           Text(
             "Данные теодолитного хода:",

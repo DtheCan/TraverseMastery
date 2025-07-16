@@ -6,13 +6,6 @@ import 'package:share_plus/share_plus.dart'; // Для ShareResultStatus
 // Сервисы
 import 'package:traversemastery/core/services/share_service.dart'; // Импорт обновленного ShareService
 
-// Цвета (если не определены глобально)
-// const _primaryBlack = Color(0xFF121212);
-// const _cardBlack = Color(0xFF1E1E1E);
-// const _textOnPrimarySurface = Colors.white;
-// const _accentBlue = Colors.blueAccent;
-// const _errorColor = Colors.redAccent;
-
 // Модель для хранения информации о файле и его состоянии выбора
 class SelectableFile {
   final FileSystemEntity fileEntity;
@@ -37,11 +30,11 @@ class StorageViewerScreen extends StatefulWidget {
 
 class _StorageViewerScreenState extends State<StorageViewerScreen> {
   Map<DateTime, List<SelectableFile>> _groupedFiles = {};
-  Set<String> _selectedFilePaths = {}; // Храним пути выбранных файлов
+  Set<String> _selectedFilePaths = {};
   bool _isLoading = true;
   String _loadingError = '';
 
-  final ShareService _shareService = ShareService(); // Экземпляр ShareService
+  final ShareService _shareService = ShareService();
 
   @override
   void initState() {
@@ -49,19 +42,18 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
     _loadAndGroupFiles();
   }
 
-  Future<void> _loadAndGroupFiles() async {
+  Future<void> _loadAndGroupFiles({bool preserveSelection = false}) async { // Добавлен параметр
+    if (!preserveSelection) {
+      _selectedFilePaths.clear(); // Сбрасываем выделение, если не указано иное
+    }
     setState(() {
       _isLoading = true;
       _loadingError = '';
-      // Сбрасываем выделение при обновлении, но не обязательно,
-      // если пользователь хочет сохранить выделение между обновлениями
-      // _selectedFilePaths.clear();
     });
 
     try {
       final directory = await getApplicationDocumentsDirectory();
       final savedDir = Directory('${directory.path}/data/SavedCalculationResult');
-
       Map<DateTime, List<SelectableFile>> tempGroupedFiles = {};
 
       if (await savedDir.exists()) {
@@ -71,35 +63,28 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
         for (var entity in files) {
           if (entity is File) {
             FileStat stats = await entity.stat();
-            // Восстанавливаем состояние isSelected, если файл уже был выбран
             bool wasSelected = _selectedFilePaths.contains(entity.path);
             selectableFiles.add(SelectableFile(
-                fileEntity: entity,
-                modifiedDate: stats.modified,
-                isSelected: wasSelected
+              fileEntity: entity,
+              modifiedDate: stats.modified,
+              isSelected: preserveSelection ? wasSelected : false, // Учитываем preserveSelection
             ));
           }
         }
-
         selectableFiles.sort((a, b) => b.modifiedDate.compareTo(a.modifiedDate));
-
         for (var selectableFile in selectableFiles) {
           DateTime dateKey = DateUtils.dateOnly(selectableFile.modifiedDate);
           tempGroupedFiles.putIfAbsent(dateKey, () => []).add(selectableFile);
         }
       } else {
         _loadingError = 'Папка с сохраненными расчетами не найдена. Ожидаемый путь: ${savedDir.path}';
-        print('StorageViewer: Папка не найдена по пути: ${savedDir.path}');
       }
       _groupedFiles = tempGroupedFiles;
     } catch (e) {
-      print('Ошибка загрузки и группировки файлов: $e');
       _loadingError = 'Произошла ошибка при загрузке файлов: ${e.toString()}';
     } finally {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -144,30 +129,20 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
       );
       return;
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Подготовка файлов к отправке... (${_selectedFilePaths.length} шт.)')),
     );
-
     final status = await _shareService.shareMultipleFiles(
       filePaths: _selectedFilePaths.toList(),
       text: 'Сохраненные результаты расчетов (${_selectedFilePaths.length} шт.)',
     );
-
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).removeCurrentSnackBar();
-
     if (status != null) {
       String message;
       switch (status) {
         case ShareResultStatus.success:
           message = 'Файлы успешно отправлены!';
-          // Опционально: сбросить выделение после успешной отправки
-          // setState(() {
-          //   _selectedFilePaths.clear();
-          //   _groupedFiles.values.expand((list) => list).forEach((file) => file.isSelected = false);
-          // });
           break;
         case ShareResultStatus.dismissed:
           message = 'Отправка отменена.';
@@ -181,10 +156,71 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось определить статус отправки файлов.')));
+        const SnackBar(content: Text('Не удалось определить статус отправки файлов.')),
+      );
     }
   }
 
+  // НОВЫЙ МЕТОД ДЛЯ УДАЛЕНИЯ ФАЙЛОВ
+  Future<void> _handleDeleteSelectedFiles() async {
+    if (_selectedFilePaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Пожалуйста, выберите файлы для удаления.')),
+      );
+      return;
+    }
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Подтверждение удаления'),
+          content: Text('Вы уверены, что хотите удалить выбранные файлы (${_selectedFilePaths.length} шт.)? Это действие необратимо.'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Отмена'),
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Удалить'),
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      int deletedCount = 0;
+      List<String> errors = [];
+
+      for (String filePath in _selectedFilePaths.toList()) { // toList() для безопасного изменения _selectedFilePaths
+        try {
+          final file = File(filePath);
+          if (await file.exists()) {
+            await file.delete();
+            deletedCount++;
+          }
+        } catch (e) {
+          errors.add(filePath.split(Platform.pathSeparator).last);
+          print('Ошибка удаления файла $filePath: $e');
+        }
+      }
+
+      String message;
+      if (errors.isEmpty) {
+        message = 'Удалено файлов: $deletedCount.';
+      } else {
+        message = 'Удалено: $deletedCount. Ошибка при удалении: ${errors.join(', ')}.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+
+      // Обновляем список файлов и сбрасываем выделение
+      _selectedFilePaths.clear();
+      await _loadAndGroupFiles(preserveSelection: false); // Перезагружаем список, сбрасывая выделение
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -196,44 +232,37 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
     const EdgeInsets dateHeaderContentPadding = EdgeInsets.only(left: commonHorizontalPadding, right: commonHorizontalPadding, top: 12.0, bottom: 12.0);
 
     return Scaffold(
-      // backgroundColor: _primaryBlack, // Если используете темную тему
       appBar: AppBar(
-        title: const Text('Сохраненные расчеты' /*, style: TextStyle(color: _textOnPrimarySurface)*/),
-        // backgroundColor: _cardBlack, // Если используете темную тему
+        title: const Text('Сохраненные расчеты'),
         elevation: 0,
         actions: [
+          // НОВАЯ КНОПКА УДАЛЕНИЯ
           if (_selectedFilePaths.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.share /*, color: _textOnPrimarySurface */),
-              onPressed: _handleShareSelectedFiles, // Вызываем новый метод
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent), // Иконка удаления
+              tooltip: 'Удалить выбранные',
+              onPressed: _handleDeleteSelectedFiles,
+            ),
+          if (_selectedFilePaths.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.share),
+              tooltip: 'Поделиться выбранными',
+              onPressed: _handleShareSelectedFiles,
             ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _loadingError.isNotEmpty
-          ? Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
-            _loadingError,
-            style: TextStyle(color: Theme.of(context).colorScheme.error), // Используем цвет ошибки из темы
-            textAlign: TextAlign.center,
-          ),
-        ),
-      )
+          ? Center( /* ... ваш код для отображения ошибки ... */ )
           : _groupedFiles.isEmpty && _loadingError.isEmpty
-          ? Center(
-        child: Text(
-          'Сохраненных расчетов пока нет.',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-      )
+          ? Center( /* ... ваш код для "нет расчетов" ... */ )
           : RefreshIndicator(
-        onRefresh: _loadAndGroupFiles,
+        onRefresh: () => _loadAndGroupFiles(preserveSelection: true), // Сохраняем выделение при ручном обновлении
         child: ListView.builder(
           itemCount: sortedDateKeys.length,
           itemBuilder: (context, dateIndex) {
+            // ... остальная часть вашего ListView.builder без изменений ...
             final dateKey = sortedDateKeys[dateIndex];
             final filesForDate = _groupedFiles[dateKey]!;
             bool allFilesInThisGroupSelected = _areAllFilesInGroupSelected(dateKey);
@@ -246,7 +275,7 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
                     children: [
                       const Divider(thickness: 1, color: Colors.grey),
                       Container(
-                        color: Theme.of(context).scaffoldBackgroundColor, // Фон как у Scaffold
+                        color: Theme.of(context).scaffoldBackgroundColor,
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
                         child: Text(
                           DateFormat('dd MMMM yyyy г.', 'ru_RU').format(dateKey),
@@ -302,3 +331,4 @@ class _StorageViewerScreenState extends State<StorageViewerScreen> {
     );
   }
 }
+

@@ -1,8 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-// Убедитесь, что путь к вашей модели TraverseCalculationResult верный
-import 'package:traversemastery/models/traverse_calculation_result.dart';
+import 'package:traversemastery/models/traverse_calculation_result.dart'; // Убедитесь, что путь верный
 
 class FormSaverService {
   Future<String?> _getAppDirectoryPath() async {
@@ -15,12 +14,38 @@ class FormSaverService {
     }
   }
 
+  // Вспомогательный приватный метод для генерации уникального имени файла
+  Future<String> _generateUniqueFileName(Directory saveDir, String baseName, String extension) async {
+    String finalName = baseName;
+    int counter = 1;
+
+    // Сначала проверим базовое имя без суффикса
+    File fileToCheck = File('${saveDir.path}/$finalName$extension');
+
+    if (await fileToCheck.exists()) {
+      // Если файл с базовым именем существует, начинаем добавлять суффикс
+      String nameWithoutExistingSuffix = baseName;
+      // Убираем потенциальный существующий суффикс (число в скобках) для корректной проверки и наращивания
+      final RegExp suffixRegex = RegExp(r'\s*\(\d+\)$');
+      if (suffixRegex.hasMatch(nameWithoutExistingSuffix)) {
+        nameWithoutExistingSuffix = nameWithoutExistingSuffix.replaceAll(suffixRegex, '').trim();
+      }
+
+      do {
+        finalName = '$nameWithoutExistingSuffix ($counter)';
+        fileToCheck = File('${saveDir.path}/$finalName$extension');
+        counter++;
+      } while (await fileToCheck.exists());
+    }
+    return finalName; // Возвращаем имя без расширения
+  }
+
+
   Future<String?> saveCalculationResult({
     required TraverseCalculationResult result,
     String? suggestedFileName,
   }) async {
     String? appDirPath = await _getAppDirectoryPath();
-
     if (appDirPath == null) {
       print("FormSaverService: Не удалось определить путь для сохранения.");
       return null;
@@ -33,78 +58,51 @@ class FormSaverService {
       if (!await saveDir.exists()) {
         await saveDir.create(recursive: true);
         print('FormSaverService: Создана директория: ${saveDir.path}');
-      } else {
-        print('FormSaverService: Директория для сохранения уже существует: ${saveDir.path}');
       }
 
-      print("FormSaverService: Получено suggestedFileName: '$suggestedFileName'");
-      String fileName = suggestedFileName?.trim() ?? '';
-      print("FormSaverService: fileName после trim и ?? '': '$fileName'");
+      String baseFileName = suggestedFileName?.trim() ?? '';
+      print("FormSaverService: Получено suggestedFileName: '$baseFileName'");
 
-
-      // 1. Если предложенное имя ПУСТОЕ, генерируем имя по умолчанию
-      if (fileName.isEmpty) {
+      if (baseFileName.isEmpty) {
         final now = DateTime.now();
         final timestamp =
             "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
         final idPart = result.calculationId.isNotEmpty && result.calculationId.length >= 8
             ? result.calculationId.substring(0, 8)
-            : "calc"; // Изменено с "res" на "calc" для большей понятности
-        fileName = '${idPart}_$timestamp';
-        print("FormSaverService: suggestedFileName был пуст, сгенерировано имя по умолчанию: '$fileName'");
+            : "calc";
+        baseFileName = '${idPart}_$timestamp';
+        print("FormSaverService: suggestedFileName был пуст, сгенерировано базовое имя: '$baseFileName'");
       }
 
-      // 2. Очистка имени файла от недопустимых символов и форматирование
-      // Разрешаем: английские буквы, русские буквы, цифры, пробел, точка, дефис, подчеркивание
-      // Все остальное заменяем на одно подчеркивание
-      fileName = fileName
-          .replaceAll(RegExp(r'[^a-zA-Zа-яА-Я0-9\s\._-]'), '_')
-          .trim(); // Убираем пробелы по краям, которые могли образоваться или были изначально
+      // Очистка базового имени файла (удаление недопустимых символов, замена пробелов)
+      // ВАЖНО: скобки () и цифры должны быть разрешены для работы суффикса
+      baseFileName = baseFileName
+          .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_') // Заменяем стандартные недопустимые символы
+          .replaceAll(RegExp(r'\s+'), '_') // Заменяем пробелы на подчеркивания
+          .replaceAll(RegExp(r'_+'), '_')   // Схлопываем множественные подчеркивания
+          .trim()
+          .replaceAll(RegExp(r'^_+|_+$'), ''); // Убираем подчеркивания в начале и конце
 
-      // Заменяем последовательности пробелов на одно подчеркивание
-      fileName = fileName.replaceAll(RegExp(r'\s+'), '_');
-
-      // Заменяем последовательности подчеркиваний (если их больше одного) на одно подчеркивание
-      fileName = fileName.replaceAll(RegExp(r'_+'), '_');
-
-      // Удаляем подчеркивание в начале имени файла, если оно есть
-      if (fileName.startsWith('_')) {
-        fileName = fileName.substring(1);
-      }
-      // Удаляем подчеркивание в конце имени файла (перед расширением), если оно есть
-      if (fileName.endsWith('_')) {
-        fileName = fileName.substring(0, fileName.length - 1);
-      }
-      print("FormSaverService: fileName после основной очистки: '$fileName'");
-
-
-      // 3. Если после очистки имя файла стало пустым или недопустимым,
-      //    снова генерируем имя по умолчанию (с другим префиксом для отладки).
-      //    Также проверяем, не состоит ли имя только из точек или дефисов.
-      if (fileName.isEmpty ||
-          fileName == '_' ||
-          fileName.replaceAll('.', '').replaceAll('-', '').isEmpty || // Состоит только из точек/дефисов
-          fileName.toLowerCase() == '.json') { // Только расширение
-
+      // Если после очистки имя стало пустым или некорректным
+      if (baseFileName.isEmpty || baseFileName == '_') {
         final now = DateTime.now();
         final timestamp = "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}";
-        final idPart = result.calculationId.isNotEmpty && result.calculationId.length >= 8
-            ? result.calculationId.substring(0, 8)
-            : "calc_err";
-        fileName = '${idPart}_${timestamp}_cleaned';
-        print("FormSaverService: fileName после очистки стал некорректным, сгенерировано новое имя: '$fileName'");
+        baseFileName = "calculation_${timestamp}";
+        print("FormSaverService: baseFileName после очистки стал некорректным, сгенерировано новое: '$baseFileName'");
       }
 
-      // 4. Добавляем расширение .json, если его нет
-      if (!fileName.toLowerCase().endsWith('.json')) {
-        fileName += '.json';
-      }
-      print("FormSaverService: Конечное имя файла для сохранения: '$fileName'");
+      // --- ЛОГИКА ГЕНЕРАЦИИ УНИКАЛЬНОГО ИМЕНИ ---
+      String finalFileNameWithoutExtension = await _generateUniqueFileName(saveDir, baseFileName, '.json');
+      // --- КОНЕЦ ЛОГИКИ ---
 
+      String finalFileNameWithExtension = '$finalFileNameWithoutExtension.json';
+      print("FormSaverService: Конечное уникальное имя файла для сохранения: '$finalFileNameWithExtension'");
 
-      final String filePath = '${saveDir.path}/$fileName';
+      final String filePath = '${saveDir.path}/$finalFileNameWithExtension';
       final File file = File(filePath);
-      final String jsonString = jsonEncode(result.toJson()); // Убедитесь, что toJson() есть в вашей модели
+
+      final encoder = JsonEncoder.withIndent('  ');
+      final String jsonString = encoder.convert(result.toJson());
 
       await file.writeAsString(jsonString);
       print('FormSaverService: Файл успешно записан: $filePath');
@@ -117,4 +115,3 @@ class FormSaverService {
     }
   }
 }
-
