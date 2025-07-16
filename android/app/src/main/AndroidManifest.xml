@@ -1,11 +1,12 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Разрешения могут быть не нужны для getApplicationDocumentsDirectory,
-         но если вы планируете писать в общие папки или permission_handler их требует: -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.traversemastery">
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <!-- Для Android < 10 (API < 29) для записи. Начиная с Android 10, поведение меняется. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Разрешение на запрос установки пакетов (для Android 8.0 Oreo API 26 и выше) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Для Android 10 (API 29) и выше, если используете requestLegacyExternalStorage (не рекомендуется для новых приложений) -->
     <!-- <application android:requestLegacyExternalStorage="true" ... > -->
 
@@ -15,6 +16,15 @@
         android:label="TM"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths"/>
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"

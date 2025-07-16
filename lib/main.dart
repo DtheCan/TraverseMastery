@@ -1,28 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:traversemastery/core/services/check_update.dart';
 import 'package:traversemastery/ui/app_theme.dart';
 import 'package:traversemastery/ui/screens/data_entry_screen.dart';
-// Удаляем дублирующийся импорт 'package:flutter/material.dart';
-import 'package:intl/date_symbol_data_local.dart'; // <--- ДОБАВЛЕН ИМПОРТ для intl
+import 'package:intl/date_symbol_data_local.dart';
 
-Future<void> main() async { // <--- ИЗМЕНЕНО: main теперь async
-  // Гарантируем, что Flutter Binding инициализирован перед асинхронными операциями
-  // или использованием плагинов (хорошая практика, если main асинхронный).
-  WidgetsFlutterBinding.ensureInitialized(); // <--- ДОБАВЛЕНО
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('ru_RU', null);
 
-  // Инициализация данных для форматирования дат для русской локали
-  await initializeDateFormatting('ru_RU', null); // <--- ДОБАВЛЕНО
-
-  // Если вы планируете поддерживать другие локали или хотите загрузить данные для текущей
-  // локали устройства по умолчанию, вы можете сделать:
-  // await initializeDateFormatting(null, null); // Загрузит все доступные
-  // ИЛИ
-  // final String? deviceLocale = Platform.localeName; // Потребует import 'dart:io';
-  // if (deviceLocale != null) {
-  //   await initializeDateFormatting(deviceLocale, null);
-  // }
-
-
-  runApp(const MyApp());
+  runApp(
+    // 3. ОБЕРНИТЕ MyApp (или его содержимое) В ChangeNotifierProvider
+    ChangeNotifierProvider(
+      create: (context) => CheckUpdateService(), // Создаем экземпляр сервиса
+      child: const MyApp(), // Ваш существующий MyApp
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -31,15 +24,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TM', // Название приложения
-      // Убедитесь, что AppTheme.darkTheme (или AppTheme.lightTheme) существует и корректно определен
-      theme: AppTheme.lightTheme, // Для примера используем светлую тему по умолчанию
+      title: 'TM',
+      theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system, // Можно выбрать system, light, dark
-      // Убедитесь, что класс DataEntryScreen определен и импортирован правильно
+      themeMode: ThemeMode.system,
       home: const DataEntryScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
 }
-

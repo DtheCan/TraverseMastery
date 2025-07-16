@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:traversemastery/core/services/check_update.dart';
 import 'package:traversemastery/core/services/travers_calculator_service.dart';
+import 'package:traversemastery/models/full_traverse_input.dart';
 import 'package:traversemastery/models/theodolite_station.dart';
 import 'package:traversemastery/models/traverse_calculation_result.dart';
-import 'package:traversemastery/models/full_traverse_input.dart';
+import 'package:traversemastery/ui/screens/about_the_application.dart';
 import 'package:traversemastery/ui/screens/calculation_results_screen.dart';
-import 'package:traversemastery/ui/widgets/theodolite_form.dart';
 import 'package:traversemastery/ui/screens/storage_viewer.dart';
+import 'package:traversemastery/ui/widgets/theodolite_form.dart';
 
 class DataEntryScreen extends StatefulWidget {
   const DataEntryScreen({super.key});
@@ -20,28 +23,22 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
 
   // Контроллеры и форма начальных данных удалены отсюда
 
-  void _onCalculate(FullTraverseInput fullInput) async { // Принимает FullTraverseInput
-    FocusScope.of(context).unfocus(); // Скрыть клавиатуру, если вдруг открыта
+  void _onCalculate(FullTraverseInput fullInput) async {
+    FocusScope.of(context).unfocus();
 
-    // Валидация уже произошла внутри TheodoliteForm
-    // Но можно добавить базовую проверку, если нужно
     if (fullInput.stations.isEmpty || fullInput.stations.length < 3) {
       _showErrorSnackBar('Недостаточно данных по станциям для расчета.');
       return;
     }
 
-    setState(() { _isLoading = true; });
+    setState(() {
+      _isLoading = true;
+    });
 
     try {
-      // Создаем объект TheodoliteStation для начальной точки на основе данных из fullInput
       final TheodoliteStation initialStationData = TheodoliteStation(
-        // ID для начальной точки может быть сгенерирован заново или взят из первой станции,
-        // но так как stations в fullInput - это только _измеренные_ данные,
-        // лучше сгенерировать новый или использовать фиксированный.
-        // Для примера, возьмем ID первой ИЗМЕРЕННОЙ станции, но это не всегда логично.
-        // Лучше: id: _uuid.v4(), (если _uuid определен здесь или в сервисе)
-        id: fullInput.stations.first.id, // Пример, может потребовать корректировки логики
-        stationName: "Нач. точка (${fullInput.stations.first.stationName})", // Пример именования
+        id: fullInput.stations.first.id,
+        stationName: "Нач. точка (${fullInput.stations.first.stationName})",
         coordinateX: fullInput.initialX,
         coordinateY: fullInput.initialY,
         horizontalAngle: null,
@@ -50,8 +47,8 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
 
       final TraverseCalculationResult result =
       await _calculatorService.calculateClosedTraverse(
-        inputStations: fullInput.stations, // Это список ИЗМЕРЕННЫХ станций
-        initialStationData: initialStationData, // Сформированная начальная станция
+        inputStations: fullInput.stations,
+        initialStationData: initialStationData,
         initialDirectionAngleDegrees: fullInput.initialAzimuth,
         calculationName: fullInput.calculationName,
       );
@@ -71,7 +68,9 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
       _showErrorSnackBar('Ошибка расчета: ${e.toString().replaceFirst("Exception: ", "")}');
     } finally {
       if (mounted) {
-        setState(() { _isLoading = false; });
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -87,6 +86,12 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
         duration: const Duration(seconds: 4),
       ),
     );
+  }
+
+  // <--- ИСПРАВЛЕНИЕ 1: Метод _extractFileName добавлен в класс --->
+  String _extractFileName(String? path) {
+    if (path == null || path.isEmpty) return '';
+    return path.split('/').last;
   }
 
   @override
@@ -120,38 +125,134 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.receipt_long), // Или Icons.storage_rounded
+                leading: const Icon(Icons.receipt_long),
                 title: const Text('Хранилище'),
                 onTap: () {
-                  Navigator.pop(context); // Сначала закрываем Drawer
-                  Navigator.push( // Затем открываем новый экран
+                  Navigator.pop(context);
+                  Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const StorageViewerScreen()),
                   );
                 },
               ),
+              Consumer<CheckUpdateService>(
+                builder: (context, updateService, child) {
+                  final updateInfo = updateService.updateInfo;
+                  final downloadStatus = updateService.downloadStatus;
+
+                  if (updateInfo != null && updateInfo.isUpdateAvailable) {
+                    String buttonText = 'Обновить до ${updateInfo.latestVersion ?? ""}';
+                    Widget leadingIcon = const Icon(Icons.system_update_alt, color: Colors.white);
+                    VoidCallback? onPressedAction = () {
+                      updateService.downloadAndInstallUpdate();
+                    };
+
+                    if (downloadStatus == DownloadProgressStatus.downloading) {
+                      buttonText = 'Загрузка... ${(updateService.downloadProgress * 100).toStringAsFixed(0)}%';
+                      leadingIcon = SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          value: updateService.downloadProgress,
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      );
+                      onPressedAction = null;
+                    } else if (downloadStatus == DownloadProgressStatus.completed) {
+                      // Используем метод _extractFileName из этого класса
+                      buttonText = 'Установить (${_extractFileName(updateService.downloadedApkPath)})';
+                      leadingIcon = const Icon(Icons.install_mobile, color: Colors.white);
+                      onPressedAction = () {
+                        if (updateService.downloadedApkPath != null) {
+                          // <--- ИСПРАВЛЕНИЕ 2: Вызываем публичный метод installApk --->
+                          updateService.installApk(updateService.downloadedApkPath!);
+                        }
+                      };
+                    } else if (downloadStatus == DownloadProgressStatus.error) {
+                      buttonText = 'Ошибка. Попробовать снова?';
+                      leadingIcon = const Icon(Icons.error_outline, color: Colors.red);
+                      // Позволяем пользователю попробовать снова скачать и установить
+                      onPressedAction = () {
+                        updateService.downloadAndInstallUpdate();
+                      };
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                      child: InkWell(
+                        onTap: onPressedAction,
+                        borderRadius: BorderRadius.circular(8.0),
+                        child: Ink(
+                          decoration: BoxDecoration(
+                            gradient: onPressedAction == null
+                                ? LinearGradient(colors: [Colors.grey.shade600, Colors.grey.shade700])
+                                : const LinearGradient(
+                              colors: [Colors.blueAccent, Colors.greenAccent],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(8.0),
+                            boxShadow: [ // Добавил небольшую тень для лучшего визуального эффекта
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.3),
+                                spreadRadius: 1,
+                                blurRadius: 3,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+                            child: Row(
+                              children: [
+                                leadingIcon,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    buttonText,
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  } else {
+                    if (updateService.isLoadingVersionCheck && updateInfo == null) {
+                      return const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                            SizedBox(width: 8),
+                            Text("Проверка обновлений...")
+                          ],
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  }
+                },
+              ),
               const Spacer(),
-              SafeArea(
-                top: false,
+              SafeArea( // Обертка для нижних элементов, чтобы они не заезжали под системные элементы
+                top: false, // Не влияет на верхнюю часть, так как уже есть Spacer
                 bottom: true,
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.min, // Чтобы Column занимал минимально необходимое место
                   children: [
-                    const Divider(),
-                    ListTile(
-                      leading: const Icon(Icons.settings_outlined),
-                      title: const Text('Настройки'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _showErrorSnackBar('Пункт "Настройки" еще не реализован.');
-                      },
-                    ),
                     ListTile(
                       leading: const Icon(Icons.info_outline),
                       title: const Text('О приложении'),
                       onTap: () {
                         Navigator.pop(context);
-                        _showErrorSnackBar('Пункт "О приложении" еще не реализован.');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const AboutTheApplicationScreen()),
+                        );
                       },
                     ),
                   ],
@@ -162,7 +263,6 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
         ),
       ),
       body: SafeArea(
-        // ... остальная часть body ...
         child: _isLoading
             ? const Center(
           child: Column(
@@ -183,3 +283,4 @@ class _DataEntryScreenState extends State<DataEntryScreen> {
     );
   }
 }
+

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Путь для временных файлов, куда вы скачиваете APK -->
+    <cache-path name="cached_apk" path="." />
+    <!-- Если используете getExternalStorageDirectory() или getExternalCacheDir() -->
+    <external-cache-path name="external_cached_apk" path="." />
+    <external-path name="external_files" path="."/>
+</paths>
