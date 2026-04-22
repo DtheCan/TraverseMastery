@@ -1,5 +1,7 @@
 # Traverse Mastery 📐✨
 
+**Авторы:** [AUTHORS](./AUTHORS)
+
 **Лицензия:** [GPL-3.0](./LICENSE)  
 
 **Traverse Mastery** — это мобильное приложение на Flutter, предназначенное для:
