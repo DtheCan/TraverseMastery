@@ -1,6 +1,6 @@
 # Traverse Mastery 📐✨
 
-**Лицензия:** [GPLV3](./LICENSE)  
+**Лицензия:** [GPL-3.0](./LICENSE)  
 
 **Traverse Mastery** — это мобильное приложение на Flutter, предназначенное для:
 - Инженеров-геодезистов
